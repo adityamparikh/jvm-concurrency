@@ -8,6 +8,33 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
+  color-scheme:light;
+  --bg:#f4f6f8;
+  --surface:#ffffff;
+  --surface2:#eaeef2;
+  --code-bg:#0d1117;     /* code stays dark in both themes */
+  --line:#d8dfe6;
+  --text:#212a35;
+  --muted:#5c6875;
+  --kotlin:#7444e0;      /* kotlin violet */
+  --kotlin-dim:#7444e014;
+  --java:#2e77ad;        /* java steel blue */
+  --java-dim:#2e77ad14;
+  --vt:#178a5e;          /* virtual-thread teal */
+  --vt-dim:#178a5e12;
+  --warn:#a8731f;
+  --bad:#c23a46;
+  --chip:#eaeef2;
+  --chip-line:#b9c3cd;
+  --arrow:#7b8794;
+  --hover:#0000000a;
+  --row-line:#e3e8ee;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --disp:'Space Grotesk',sans-serif;
+  --body:'Inter',system-ui,sans-serif;
+}
+[data-theme="dark"]{
+  color-scheme:dark;
   --bg:#101418;          /* graphite */
   --surface:#161d24;
   --surface2:#1b232c;
@@ -15,18 +42,41 @@
   --line:#2a343f;
   --text:#d7dee6;
   --muted:#8b95a1;
-  --kotlin:#a97bff;      /* kotlin violet */
+  --kotlin:#a97bff;
   --kotlin-dim:#a97bff22;
-  --java:#4e9cdb;        /* java steel blue */
+  --java:#4e9cdb;
   --java-dim:#4e9cdb22;
-  --vt:#46c28e;          /* virtual-thread teal */
+  --vt:#46c28e;
   --vt-dim:#46c28e1f;
   --warn:#e0a458;
   --bad:#e06c75;
-  --mono:'JetBrains Mono',ui-monospace,monospace;
-  --disp:'Space Grotesk',sans-serif;
-  --body:'Inter',system-ui,sans-serif;
+  --chip:#1b232c;
+  --chip-line:#3a4552;
+  --arrow:#5c6773;
+  --hover:#ffffff05;
+  --row-line:#1e2830;
 }
+/* route hardcoded SVG diagram colors through the theme */
+svg [fill="#1b232c"]{fill:var(--chip)}
+svg [stroke="#3a4552"]{stroke:var(--chip-line)}
+svg [stroke="#2a343f"]{stroke:var(--line)}
+svg [stroke="#5c6773"]{stroke:var(--arrow)}
+svg [fill="#5c6773"]{fill:var(--arrow)}
+svg [stroke="#a97bff"]{stroke:var(--kotlin)}
+svg [fill="#a97bff22"]{fill:var(--kotlin-dim)}
+svg [stroke="#4e9cdb"]{stroke:var(--java)}
+svg [fill="#4e9cdb22"]{fill:var(--java-dim)}
+svg [stroke="#46c28e"]{stroke:var(--vt)}
+svg [fill="#46c28e22"],svg [fill="#46c28e1f"],svg [fill="#46c28e33"]{fill:var(--vt-dim)}
+svg [stroke="#e0a458"]{stroke:var(--warn)}
+svg [stroke="#e06c75"]{stroke:var(--bad)}
+svg [fill="#e06c75"]{fill:var(--bad)}
+svg text[fill="#4e9cdb"]{fill:var(--java)}
+svg text[fill="#46c28e"]{fill:var(--vt)}
+svg text[fill="#a97bff"]{fill:var(--kotlin)}
+svg text[fill="#e06c75"]{fill:var(--bad)}
+.theme-toggle{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;white-space:nowrap}
+.theme-toggle:hover,.theme-toggle:focus-visible{color:var(--text);border-color:var(--muted);outline:none}
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 @media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
@@ -89,11 +139,11 @@ pre .hl{background:#ffffff10;display:inline-block;width:100%}
 /* ---------- tables ---------- */
 table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
 th{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.05em;text-align:left;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--line)}
-td{padding:8px 12px;border-bottom:1px solid #1e2830;vertical-align:top}
+td{padding:8px 12px;border-bottom:1px solid var(--row-line);vertical-align:top}
 th.kcol, td.kcol{color:var(--kotlin)} 
 th.jcol, td.jcol{color:var(--java)}
 td .dim{color:var(--muted)}
-tr:hover td{background:#ffffff05}
+tr:hover td{background:var(--hover)}
 
 /* ---------- callouts ---------- */
 .callout{border:1px solid var(--line);border-left:3px solid var(--warn);background:var(--surface);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:13.5px}
@@ -151,11 +201,65 @@ footer code{font-family:var(--mono)}
   <a href="#interop">9 Interop</a>
   <a href="#web">10 WebMVC vs WebFlux</a>
   <a href="#gotchas">11 Gotchas</a>
+  <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch color theme">☾ dark</button>
 </nav>
 
 <!-- ============ 0 MENTAL MODEL ============ -->
 <section id="model">
-  <h2><span class="num">§0</span>Mental model: who parks whom</h2>
+  <h2><span class="num">§0</span>Mental model</h2>
+
+  <h2 id="terms" style="font-size:19px;margin-top:14px"><span class="num">§0.1</span>Vocabulary: async ≠ parallel ≠ non-blocking</h2>
+  <p class="lede">These words get used interchangeably; they name <b>orthogonal properties</b>. Every technology in this sheet is a different combination of them — misdiagnosing which property you actually need is how teams end up on WebFlux for a CRUD service.</p>
+
+  <table>
+    <tr><th>Term</th><th>A property of…</th><th>Meaning</th><th>Litmus example</th></tr>
+    <tr><td><b>Blocking / non-blocking</b></td><td>how the <em>wait</em> is implemented</td><td>Does an OS thread sit parked inside the call until the result arrives — or is the wait registered with the OS (epoll/NIO) and the thread freed to do other work?</td><td><code>socket.read()</code> on a platform thread vs an NIO selector loop</td></tr>
+    <tr><td><b>Synchronous / asynchronous</b></td><td>the <em>call contract</em></td><td>Sync: the result is in hand when the call returns. Async: the call returns immediately and the result is delivered later — via callback, future, or resumption.</td><td><code>Quote quote(id)</code> vs <code>CompletableFuture&lt;Quote&gt; quote(id)</code></td></tr>
+    <tr><td><b>Concurrent</b></td><td>program <em>structure</em></td><td>Multiple tasks in progress over overlapping time windows. Interleaving on a single thread counts — no second core required.</td><td>10k coroutines multiplexed on one dispatcher thread</td></tr>
+    <tr><td><b>Parallel</b></td><td><em>hardware</em> execution</td><td>Multiple tasks executing at the same instant on different cores. Parallelism is a subset of concurrency; it buys throughput for CPU-bound work, nothing for waits.</td><td><code>list.parallelStream().map(…)</code></td></tr>
+  </table>
+
+  <figure>
+  <svg viewBox="0 0 980 340" role="img" aria-label="Quadrant of call contract versus thread behavior during a wait">
+    <!-- axis labels -->
+    <text x="490" y="20" class="svg-m" font-size="11" text-anchor="middle">thread during the wait: FREED (non-blocking)</text>
+    <text x="490" y="330" class="svg-m" font-size="11" text-anchor="middle">thread during the wait: PARKED (blocking)</text>
+    <text x="18" y="175" class="svg-m" font-size="11">SYNC contract</text>
+    <text x="962" y="175" class="svg-m" font-size="11" text-anchor="end">ASYNC contract</text>
+    <!-- axes -->
+    <line x1="490" y1="28" x2="490" y2="312" stroke="#3a4552"/>
+    <line x1="120" y1="170" x2="860" y2="170" stroke="#3a4552"/>
+    <!-- TL: sync + freed -->
+    <rect x="130" y="34" width="340" height="120" rx="10" fill="#46c28e22" stroke="#46c28e"/>
+    <text x="300" y="60" class="svg-t" font-size="13" text-anchor="middle">looks blocking — isn't</text>
+    <text x="300" y="82" class="svg-m" font-size="11" text-anchor="middle">sequential code, thread freed under the hood</text>
+    <text x="300" y="106" class="svg-t" font-size="11.5" text-anchor="middle">virtual threads · suspend fun (coroutines)</text>
+    <text x="300" y="126" class="svg-m" font-size="11" text-anchor="middle">the sweet spot for most services</text>
+    <!-- TR: async + freed -->
+    <rect x="510" y="34" width="340" height="120" rx="10" fill="#4e9cdb22" stroke="#4e9cdb"/>
+    <text x="680" y="60" class="svg-t" font-size="13" text-anchor="middle">fully reactive</text>
+    <text x="680" y="82" class="svg-m" font-size="11" text-anchor="middle">async contract over non-blocking I/O</text>
+    <text x="680" y="106" class="svg-t" font-size="11.5" text-anchor="middle">Reactor / WebFlux · CF over NIO clients</text>
+    <text x="680" y="126" class="svg-m" font-size="11" text-anchor="middle">max control: backpressure, operators</text>
+    <!-- BL: sync + parked -->
+    <rect x="130" y="186" width="340" height="120" rx="10" fill="#1b232c" stroke="#3a4552"/>
+    <text x="300" y="212" class="svg-t" font-size="13" text-anchor="middle">the classic</text>
+    <text x="300" y="234" class="svg-m" font-size="11" text-anchor="middle">thread sits in the call until I/O completes</text>
+    <text x="300" y="258" class="svg-t" font-size="11.5" text-anchor="middle">platform thread + JDBC / RestTemplate</text>
+    <text x="300" y="278" class="svg-m" font-size="11" text-anchor="middle">fine until thread count is the ceiling</text>
+    <!-- BR: async + parked -->
+    <rect x="510" y="186" width="340" height="120" rx="10" fill="#e0a45822" stroke="#e0a458"/>
+    <text x="680" y="212" class="svg-t" font-size="13" text-anchor="middle">moved the blocking, didn't remove it</text>
+    <text x="680" y="234" class="svg-m" font-size="11" text-anchor="middle">caller is async; a pool thread still parks</text>
+    <text x="680" y="258" class="svg-t" font-size="11.5" text-anchor="middle">supplyAsync(() -&gt; jdbc.query(…), pool)</text>
+    <text x="680" y="278" class="svg-m" font-size="11" text-anchor="middle">easy to mistake for non-blocking</text>
+  </svg>
+  <figcaption>fig 0a — contract × wait behavior. Parallelism is a third, independent axis: how many cores execute at once.</figcaption>
+  </figure>
+
+  <div class="callout"><span class="tag warn">the traps</span><b>Async ≠ non-blocking</b>: <code>supplyAsync</code> wrapping JDBC is asynchronous to the caller while a pool thread blocks all the same. <b>Non-blocking ≠ async</b>: a <code>suspend fun</code> or a blocking call on a virtual thread gives a synchronous contract over a freed thread. <b>Concurrent ≠ parallel</b>: 100k coroutines can interleave on one thread, while <code>parallelStream</code> is parallel yet fully synchronous — the caller waits.</div>
+
+  <h2 id="parks" style="font-size:19px;margin-top:34px"><span class="num">§0.2</span>Who parks whom</h2>
   <p class="lede">All three models solve the same problem — <b>don't hold an OS thread hostage during I/O</b> — at different layers. Coroutines unmount at <code>suspend</code> points (compiler-generated state machines, CPS transform). Virtual threads unmount at blocking JDK calls (JVM-managed continuations). Platform threads never unmount; they just block.</p>
 
   <figure>
@@ -740,5 +844,16 @@ spring.threads.virtual.enabled: <span class="kw">true</span>   <span class="c">#
 </footer>
 
 </div>
+<script>
+(function(){
+  var KEY='theme', root=document.documentElement, btn=document.getElementById('themeToggle');
+  function stored(){try{return localStorage.getItem(KEY)}catch(e){return null}}
+  function save(v){try{localStorage.setItem(KEY,v)}catch(e){}}
+  function apply(t){root.setAttribute('data-theme',t);btn.textContent=(t==='dark'?'\u2600 light':'\u263e dark');}
+  var t=stored()==='dark'?'dark':'light';
+  apply(t);
+  btn.addEventListener('click',function(){t=(t==='dark'?'light':'dark');save(t);apply(t);});
+})();
+</script>
 </body>
 </html>
