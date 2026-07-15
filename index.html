@@ -755,6 +755,42 @@ sink.<span class="fn">asFlux</span>()
   <p class="lede">A <code>Flow&lt;T&gt;</code> is a <b>cold, suspending stream</b>: a recipe that produces values over time. Nothing runs until you collect it, each collector gets its own fresh run, and backpressure is implicit — a slow collector simply suspends the emitter. <code>Flux&lt;T&gt;</code> occupies the same conceptual slot in Reactor.</p>
   <p class="lede"><code>java.util.stream.Stream</code> is <em>not</em> an equivalent: it's synchronous, pull-only, single-use, and has no notion of time. And <code>java.util.concurrent.Flow</code> (JEP 266) is only the Reactive-Streams <em>interfaces</em> — the JDK ships zero operators; Reactor and RxJava supply them.</p>
 
+  <h2 id="chan-vs-flow" style="font-size:19px;margin-top:28px"><span class="num">§7.0</span>Channel vs Flow — and <code>channelFlow</code>, the bridge</h2>
+  <p class="lede">§6 was <code>Channel</code>; this section is <code>Flow</code>. They are easy to confuse because both carry a sequence of values over time — but they sit on opposite sides of one line: <b>a channel is <em>hot</em> and shared; a flow is <em>cold</em> and per-collector.</b> Getting this distinction is what makes <code>channelFlow</code> (used heavily in §11) obvious rather than mysterious.</p>
+  <table>
+    <tr><th></th><th class="kcol"><code>Channel&lt;T&gt;</code> (§6)</th><th class="kcol"><code>Flow&lt;T&gt;</code> (§7)</th></tr>
+    <tr><td><b>Hot or cold</b></td><td>HOT — exists and buffers whether or not anyone is reading</td><td>COLD — inert until <code>collect</code>; the body re-runs for <em>each</em> collector</td></tr>
+    <tr><td><b>Who produces</b></td><td>One side <code>send</code>s, another <code>receive</code>s — <b>decoupled</b>, often different coroutines</td><td>The <code>flow { }</code> block <em>is</em> the producer; it runs inside the collector</td></tr>
+    <tr><td><b>Fan-out</b></td><td>Each item goes to <b>exactly one</b> receiver (competing consumers)</td><td>Each collector gets <b>its own independent run</b> of every item</td></tr>
+    <tr><td><b>Concurrency inside</b></td><td>Naturally multi-producer / multi-consumer</td><td>Sequential by default — you can't <code>emit</code> from another coroutine</td></tr>
+    <tr><td><b>Reuse</b></td><td>Single conduit; once closed, done</td><td>Re-collectable any number of times</td></tr>
+    <tr><td><b>Java analogy</b></td><td><code>BlockingQueue</code> — a live pipe between threads</td><td>A lazy <code>Supplier</code>-of-stream — nothing until someone iterates</td></tr>
+  </table>
+  <p class="lede">Rule of thumb: reach for a <b>Channel</b> when independent producers must hand work to consumers (a pipeline, §6). Reach for a <b>Flow</b> when you're describing a reusable stream a caller will consume (an API return type, §7). The tension appears when you want a Flow's cold, backpressured, re-collectable <em>interface</em> but need several coroutines producing into it concurrently — which a plain <code>flow { }</code> forbids.</p>
+  <div class="card k">
+    <h3>KOTLIN · <code>channelFlow</code> — a Flow whose values come from a Channel</h3>
+<pre><span class="c">// A plain flow { } is sequential: you may only emit() from the</span>
+<span class="c">// flow's own coroutine. THIS DOES NOT COMPILE:</span>
+<span class="c">//     flow { launch { emit(x) } }   // error: emit from wrong coroutine</span>
+
+<span class="c">// channelFlow gives the block a hidden Channel. Concurrent children</span>
+<span class="c">// send() into it; channelFlow drains it and emits downstream. To the</span>
+<span class="c">// COLLECTOR it's an ordinary cold Flow with normal backpressure —</span>
+<span class="c">// the channel is an internal implementation detail.</span>
+<span class="kw">fun</span> <span class="fn">prices</span>(syms: <span class="ty">List</span>&lt;<span class="ty">String</span>&gt;): <span class="ty">Flow</span>&lt;<span class="ty">Tick</span>&gt; = <span class="fn">channelFlow</span> {
+    syms.<span class="fn">forEach</span> { sym -&gt;
+        <span class="fn">launch</span> {                       <span class="c">// one child coroutine per symbol —</span>
+            feed(sym).<span class="fn">collect</span> { <span class="fn">send</span>(it) }  <span class="c">// all producing CONCURRENTLY</span>
+        }
+    }
+}   <span class="c">// closes when every child completes (structured concurrency)</span>
+
+<span class="c">// send() suspends when the downstream collector is slow → the cold</span>
+<span class="c">// Flow's backpressure reaches all the way back to each producer.</span></pre>
+    <div class="note">So: <code>flow { }</code> = cold + sequential producer. <code>Channel</code> = hot + concurrent, but not a Flow. <code>channelFlow { }</code> = the bridge — a cold Flow on the outside, a concurrent Channel on the inside. That is exactly the fan-in shape §11.1 needs: several backends producing into one streamed response. (<code>callbackFlow</code> is the same tool for bridging a callback-based API into a Flow.)</div>
+  </div>
+
+
   <div class="callout good"><span class="tag ok">the goal</span>Both snippets below build the <b>same live price feed</b> for one symbol: poll the source repeatedly, normalise each tick, discard bad prices, keep going if the source errors (substituting a stale marker, retrying up to 3×), and decouple the producer from a slow consumer with a 256-element buffer so a slow subscriber can't stall the poll loop.</div>
 
   <div class="duo">
@@ -1146,7 +1182,7 @@ spring.threads.virtual.enabled: <span class="kw">true</span>   <span class="c">#
 
   <div class="duo">
     <div class="card k">
-      <h3>KOTLIN · channelFlow (fan-in) returned as a Flow (generator)</h3>
+      <h3>KOTLIN · channelFlow (fan-in) returned as a Flow (generator) — see §7.0</h3>
 <pre><span class="c">// GENERATOR: the return type is a Flow — the framework streams it</span>
 <span class="c">// (SSE / chunked) instead of buffering a full response.</span>
 <span class="kw">fun</span> <span class="fn">answers</span>(q: <span class="ty">Query</span>): <span class="ty">Flow</span>&lt;<span class="ty">Part</span>&gt; = <span class="fn">channelFlow</span> {
