@@ -330,7 +330,8 @@ footer code{font-family:var(--mono)}
 <!-- ============ 1 SUSPEND ============ -->
 <section id="suspend">
   <h2><span class="num">§1</span>Suspend functions</h2>
-  <p class="lede"><code>suspend</code> marks a function that may <b>pause and resume</b>. You write it as if it were sequential blocking code; the compiler rewrites it into a state machine. No callbacks, no futures in signatures. The two Java translations differ radically in ergonomics.</p>
+  <p class="lede"><code>suspend</code> marks a function that may <b>pause and resume</b>. You write it as if it were sequential blocking code; the compiler rewrites it into a state machine. No callbacks, no futures in signatures.</p>
+  <p class="lede">Relationship to coroutines: <b>a suspend function is not a coroutine.</b> A coroutine is a running <em>instance</em> — created by a builder like <code>launch</code>/<code>async</code> (§2), owning a <code>Job</code> and a context. Suspend functions are the composable <em>units of work</em> that execute inside one; they relate to a coroutine roughly as a method relates to the thread executing it. That's why a suspend fn can only be called from a coroutine (or another suspend fn): it needs a coroutine's continuation to suspend against (§1.1). The three Java-side translations below differ radically in ergonomics.</p>
 
   <div class="duo">
     <div class="card k">
@@ -370,7 +371,21 @@ footer code{font-family:var(--mono)}
         .<span class="fn">thenCompose</span>(q -&gt; <span class="fn">rating</span>(q.issuer())
             .<span class="fn">thenApply</span>(r -&gt; <span class="kw">new</span> <span class="ty">Enriched</span>(q, r)));  <span class="c">// nested, to keep q in scope</span>
 }</pre>
-        <div class="note">Monadic coloring: futures infect every signature, intermediate values force nesting, and stack traces show executor frames instead of your call chain.</div>
+        <div class="note">Monadic coloring: futures infect every signature, intermediate values force nesting, and stack traces show executor frames instead of your call chain. And a CF is <b>eager</b> — work starts the moment <code>supplyAsync</code> runs.</div>
+      </div>
+      <div class="card j">
+        <h3>REACTOR · Mono — the reactive equivalent of one suspend call</h3>
+<pre><span class="ty">Mono</span>&lt;<span class="ty">Quote</span>&gt; <span class="fn">quote</span>(<span class="ty">String</span> id) {
+    <span class="kw">return</span> Mono.<span class="fn">fromCallable</span>(() -&gt; repo.<span class="fn">find</span>(id))     <span class="c">// wrap blocking call</span>
+               .<span class="fn">subscribeOn</span>(Schedulers.<span class="fn">boundedElastic</span>()); <span class="c">// ≈ Dispatchers.IO</span>
+}
+<span class="ty">Mono</span>&lt;<span class="ty">Enriched</span>&gt; <span class="fn">enrich</span>(<span class="ty">String</span> id) {
+    <span class="kw">return</span> <span class="fn">quote</span>(id)
+        .<span class="fn">flatMap</span>(q -&gt; <span class="fn">rating</span>(q.<span class="fn">issuer</span>())          <span class="c">// == thenCompose</span>
+            .<span class="fn">map</span>(r -&gt; <span class="kw">new</span> <span class="ty">Enriched</span>(q, r)));
+}   <span class="c">// NOTHING has run yet — a Mono is a lazy recipe; work starts</span>
+    <span class="c">// only when the framework (or you) subscribe()s.</span></pre>
+        <div class="note">The slot mapping: <code>Mono&lt;T&gt;</code> ≈ a <code>suspend () -&gt; T</code> (one value, lazy, composable) and <code>Flux&lt;T&gt;</code> ≈ <code>Flow&lt;T&gt;</code> (§7). Same monadic coloring as CompletableFuture, but <b>lazy</b> (CF is eager) and with a far richer operator set (<code>timeout</code>, <code>retryWhen</code>, backpressure). Combining the stacks — calling a Mono from a suspend fn (<code>awaitSingle()</code>) or exposing a suspend fn as a Mono (<code>mono { }</code>) — is §9.</div>
       </div>
     </div>
   </div>
@@ -830,8 +845,11 @@ sink.<span class="fn">asFlux</span>()
   <div class="card k">
     <h3>KOTLIN · <code>channelFlow</code> — a Flow whose values come from a Channel</h3>
 <pre><span class="c">// A plain flow { } is sequential: you may only emit() from the</span>
-<span class="c">// flow's own coroutine. THIS DOES NOT COMPILE:</span>
-<span class="c">//     flow { launch { emit(x) } }   // error: emit from wrong coroutine</span>
+<span class="c">// flow's own coroutine. The naive attempts both fail:</span>
+<span class="c">//   flow { launch { emit(x) } }                  // doesn't COMPILE —</span>
+<span class="c">//     the flow block has no CoroutineScope, so launch doesn't resolve</span>
+<span class="c">//   flow { coroutineScope { launch { emit(x) } } }  // compiles, then</span>
+<span class="c">//     throws at RUNTIME: "Flow invariant is violated" (concurrent emit)</span>
 
 <span class="c">// channelFlow gives the block a hidden Channel. Concurrent children</span>
 <span class="c">// send() into it; channelFlow drains it and emits downstream. To the</span>
