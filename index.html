@@ -106,7 +106,7 @@ section{padding:44px 0 8px}
 h2{font-family:var(--disp);font-size:24px;font-weight:700;margin-bottom:6px;scroll-margin-top:70px}
 h2 .num{font-family:var(--mono);font-size:13px;color:var(--muted);font-weight:400;margin-right:10px;vertical-align:2px}
 .lede{color:var(--muted);max-width:820px;margin-bottom:22px}
-.lede code, p code, li code, td code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--text)}
+.lede code, p code, li code, td code, .callout code, .note code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--text);overflow-wrap:anywhere;word-break:break-word}
 
 /* ---------- the translation rail (signature) ---------- */
 .duo{display:grid;grid-template-columns:1fr 38px 1fr;gap:0;margin:18px 0}
@@ -448,6 +448,38 @@ footer code{font-family:var(--mono)}
     <tr><td>Fall-through when not suspended</td><td>The fast path: if the callee already had the value, no state is saved and no dispatch happens. Suspension is only paid for when it actually occurs.</td></tr>
     <tr><td>Compile-time rewrite</td><td>Only <code>suspend</code> calls become suspension points. Loom does the equivalent frame capture at <b>runtime, in the JVM</b>, so <em>any</em> blocking call can unmount and no signature changes. Same idea, different layer. It's also why coroutine stack traces are synthetic: the real stack unwound, and what remains is a chain of continuation objects.</td></tr>
   </table>
+
+  <h2 id="vt-vs-suspend" style="font-size:19px;margin-top:34px"><span class="num">§1.2</span>Do virtual threads make <code>suspend</code> obsolete?</h2>
+  <p class="lede">Half-true, and the half that's false is the important half. Virtual threads and <code>suspend</code> compete on <b>one</b> axis — parking cheaply on I/O — and don't overlap at all on the others. The honest split:</p>
+  <div class="duo">
+    <div class="card v">
+      <h3>VTs DO replace <code>suspend</code> here</h3>
+<pre><span class="c">// The blocking-I/O-offload use case — suspend's</span>
+<span class="c">// original headline job. On a virtual thread:</span>
+<span class="ty">User</span> <span class="fn">loadUser</span>(<span class="kw">long</span> id) {
+    <span class="kw">return</span> jdbc.<span class="fn">queryForObject</span>(...);  <span class="c">// just blocks</span>
+}   <span class="c">// no suspend, no withContext, no coloring —</span>
+    <span class="c">// the VT unmounts its carrier for free.</span></pre>
+      <div class="note">On JDK 21+ with <code>spring.threads.virtual.enabled=true</code>, "don't tie up a thread on I/O" needs no coroutines. VTs win here on <b>simplicity</b>: no function coloring, true stack traces, working ThreadLocals/MDC.</div>
+    </div>
+    <div class="spine"><span class="eq part">but</span></div>
+    <div class="card k">
+      <h3>VTs DON'T touch these — coroutines' real moat</h3>
+<pre><span class="c">// Structured concurrency as a LANGUAGE feature:</span>
+<span class="kw">val</span> r = <span class="fn">coroutineScope</span> {
+    <span class="kw">val</span> a = <span class="fn">async</span> { svc.x() }      <span class="c">// typed Deferred&lt;T&gt;</span>
+    <span class="kw">val</span> b = <span class="fn">async</span> { svc.y() }      <span class="c">// auto parent-child</span>
+    <span class="ty">Combined</span>(a.<span class="fn">await</span>(), b.<span class="fn">await</span>())  <span class="c">// cancel</span>
+}                                     <span class="c">//   propagation</span>
+
+<span class="c">// COLD, backpressured async STREAMS — no VT analog:</span>
+prices.<span class="fn">conflate</span>().<span class="fn">map</span> { ... }.<span class="fn">collect</span> { ... }
+<span class="c">// plus Channel + select, dispatcher confinement,</span>
+<span class="c">// cooperative cancellation at suspension points.</span></pre>
+      <div class="note"><code>StructuredTaskScope</code> (§3) is Java's answer to the left block, but it's a preview API and more verbose. There is <b>no</b> VT replacement for <code>Flow</code>, <code>Channel</code>/<code>select</code>, or dispatcher confinement — that's a concurrency model, not a threading trick.</div>
+    </div>
+  </div>
+  <div class="callout good"><span class="tag ok">takeaway</span>Post-Loom, "escape the thread-per-request ceiling" is no longer a reason to choose coroutines — VTs give you that with less ceremony. "I want structured concurrency, <code>Flow</code>, and channel coordination" still is. And they compose: run coroutines <em>on</em> a VT-backed dispatcher (<code>Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()</code>) and get cheap parking <em>and</em> the coroutine model. Most Kotlin teams that adopt VTs still keep <code>Flow</code> and <code>coroutineScope</code> because they're more ergonomic than the Java equivalents.</div>
 </section>
 
 <!-- ============ 2 BUILDERS ============ -->
