@@ -129,6 +129,7 @@ h2 .num{font-family:var(--mono);font-size:13px;color:var(--muted);font-weight:40
 
 pre{font-family:var(--mono);font-size:12.4px;line-height:1.65;background:var(--code-bg);color:#d7dee6;padding:14px 16px;tab-size:4;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
 pre .c{color:#7c8794}
+/* comment color set above */
 pre .kw{color:#cf8ff0}         /* keyword */
 pre .fn{color:#7fd1e8}         /* function */
 pre .str{color:#a8cc8c}        /* string */
@@ -138,6 +139,10 @@ pre .hl{background:#ffffff10;display:inline-block;width:100%}
 
 /* ---------- tables ---------- */
 table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+@media (max-width:860px){
+  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table td,table th{min-width:150px}
+}
 th{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.05em;text-align:left;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--line)}
 td{padding:8px 12px;border-bottom:1px solid var(--row-line);vertical-align:top}
 th.kcol, td.kcol{color:var(--kotlin)} 
@@ -183,7 +188,7 @@ footer code{font-family:var(--mono)}
     <span class="badge k"><b>kotlinx-coroutines</b> 1.10.x</span>
     <span class="badge j"><b>JDK 21</b> virtual threads final</span>
     <span class="badge v"><b>JDK 24</b> sync-pinning fixed (JEP 491)</span>
-    <span class="badge v"><b>JDK 25 LTS</b> StructuredTaskScope 5th preview (JEP 505)</span>
+    <span class="badge v"><b>JDK 25 LTS</b> StructuredTaskScope preview (JEP 505 · 6th preview JEP 525 in JDK 26)</span>
     <span class="badge j"><b>Spring Boot 3.2+</b> spring.threads.virtual.enabled</span>
   </div>
 </header>
@@ -200,7 +205,8 @@ footer code{font-family:var(--mono)}
   <a href="#hot">8 Hot flows</a>
   <a href="#interop">9 Interop</a>
   <a href="#web">10 WebMVC vs WebFlux</a>
-  <a href="#gotchas">11 Gotchas</a>
+  <a href="#patterns">11 Server patterns</a>
+  <a href="#gotchas">12 Gotchas</a>
   <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch color theme">☾ dark</button>
 </nav>
 
@@ -305,8 +311,9 @@ footer code{font-family:var(--mono)}
       <line x1="712" y1="78" x2="730" y2="98" stroke="#3a4552"/><line x1="862" y1="78" x2="830" y2="98" stroke="#3a4552"/>
       <rect x="690" y="98" width="120" height="26" rx="5" fill="#1b232c" stroke="#3a4552"/><text x="750" y="115" class="svg-m" font-size="11" text-anchor="middle">Dispatchers.IO</text>
       <rect x="820" y="98" width="120" height="26" rx="5" fill="#1b232c" stroke="#3a4552"/><text x="880" y="115" class="svg-m" font-size="11" text-anchor="middle">Default</text>
-      <text x="690" y="146" class="svg-m" font-size="11">compiler CPS transform — a blocking call NOT marked</text>
-      <text x="690" y="163" class="svg-m" font-size="11">suspend still blocks the dispatcher thread</text>
+      <text x="690" y="146" class="svg-m" font-size="10.5">compiler CPS transform — a blocking</text>
+      <text x="690" y="163" class="svg-m" font-size="10.5">call NOT marked suspend still blocks</text>
+      <text x="690" y="178" class="svg-m" font-size="10.5">the dispatcher thread</text>
     </g>
     <!-- bottom strip -->
     <line x1="10" y1="188" x2="970" y2="188" stroke="#2a343f"/>
@@ -314,7 +321,8 @@ footer code{font-family:var(--mono)}
     <text x="10" y="236" class="svg-m" font-size="11.5">· Virtual threads make BLOCKING code cheap → existing synchronous Java (JDBC, RestClient) scales unchanged.</text>
     <text x="10" y="256" class="svg-m" font-size="11.5">· Coroutines make ASYNC code look synchronous → but every I/O call must be suspend-aware (or wrapped in Dispatchers.IO).</text>
     <text x="10" y="276" class="svg-m" font-size="11.5">· Reactor makes async explicit as a value (Mono/Flux) → maximal control (backpressure, operators), maximal ceremony.</text>
-    <text x="10" y="303" class="svg-t" font-size="12" fill="#46c28e">Rule of thumb: coroutines = structured concurrency + streaming as a language feature. Virtual threads = same scalability for plain Java. Reactor = only when you need Reactive-Streams semantics.</text>
+    <text x="10" y="300" class="svg-t" font-size="11.5" fill="#46c28e">Rule of thumb: coroutines = structured concurrency + streaming as language features. Virtual threads = the same</text>
+    <text x="10" y="318" class="svg-t" font-size="11.5" fill="#46c28e">scalability for plain Java. Reactor = only when you need true Reactive-Streams semantics.</text>
   </svg>
   <figcaption>fig 0 — thread mapping. "Parked"/"suspended" work costs a heap object, not an OS thread.</figcaption>
   </figure>
@@ -322,26 +330,27 @@ footer code{font-family:var(--mono)}
 <!-- ============ 1 SUSPEND ============ -->
 <section id="suspend">
   <h2><span class="num">§1</span>Suspend functions</h2>
-  <p class="lede"><code>suspend</code> is a compiler-level colored function: the compiler rewrites it into a state machine taking a hidden <code>Continuation&lt;T&gt;</code> parameter (CPS). Sequential-looking code, no callbacks, no futures in signatures. The two Java translations differ radically in ergonomics.</p>
+  <p class="lede"><code>suspend</code> marks a function that may <b>pause and resume</b>. You write it as if it were sequential blocking code; the compiler rewrites it into a state machine. No callbacks, no futures in signatures. The two Java translations differ radically in ergonomics.</p>
 
   <div class="duo">
     <div class="card k">
       <h3>KOTLIN · suspend</h3>
 <pre><span class="kw">suspend fun</span> <span class="fn">quote</span>(id: <span class="ty">String</span>): <span class="ty">Quote</span> =
-    <span class="fn">withContext</span>(Dispatchers.IO) { repo.<span class="fn">find</span>(id) }  <span class="c">// wrap blocking JDBC</span>
+    <span class="fn">withContext</span>(Dispatchers.IO) { repo.<span class="fn">find</span>(id) }  <span class="c">// blocking JDBC, moved off the CPU pool</span>
 
 <span class="kw">suspend fun</span> <span class="fn">enrich</span>(id: <span class="ty">String</span>): <span class="ty">Enriched</span> {
-    <span class="kw">val</span> q = <span class="fn">quote</span>(id)            <span class="c">// sequential, thread released while waiting</span>
-    <span class="kw">val</span> r = <span class="fn">rating</span>(q.issuer)     <span class="c">// plain call syntax, real stack traces*</span>
+    <span class="kw">val</span> q = <span class="fn">quote</span>(id)            <span class="c">// thread is RELEASED while this waits</span>
+    <span class="kw">val</span> r = <span class="fn">rating</span>(q.issuer)     <span class="c">// resumes on the SAME dispatcher thread</span>
     <span class="kw">return</span> <span class="ty">Enriched</span>(q, r)
 }</pre>
-      <div class="note">Signature is honest: <code>suspend</code> ⇒ may park. Callable only from a coroutine or another suspend fn — the compiler enforces the color.</div>
+      <div class="note">The signature is honest: <code>suspend</code> ⇒ may pause. Callable only from a coroutine or another suspend fn — the compiler enforces the "color".</div>
     </div>
     <div class="spine"><span class="eq approx">≈</span></div>
     <div class="stack">
       <div class="card v">
         <h3>JAVA · with virtual threads (JDK 21+)</h3>
-<pre><span class="c">// Just write blocking code. The VT unmounts during I/O.</span>
+<pre><span class="c">// Write ordinary blocking code. The VT unmounts during I/O,</span>
+<span class="c">// so the OS thread underneath is free to run other work.</span>
 <span class="ty">Quote</span> <span class="fn">quote</span>(<span class="ty">String</span> id) { <span class="kw">return</span> repo.<span class="fn">find</span>(id); }
 
 <span class="ty">Enriched</span> <span class="fn">enrich</span>(<span class="ty">String</span> id) {
@@ -349,7 +358,7 @@ footer code{font-family:var(--mono)}
     <span class="kw">var</span> r = <span class="fn">rating</span>(q.issuer());
     <span class="kw">return new</span> <span class="ty">Enriched</span>(q, r);
 }</pre>
-        <div class="note">No function coloring at all — every method can park. Cost: nothing in the signature tells you it does I/O.</div>
+        <div class="note">No function coloring at all — any method may park. The cost: nothing in the signature warns you it does I/O.</div>
       </div>
       <div class="card j">
         <h3>JAVA · without VT (CompletableFuture)</h3>
@@ -359,59 +368,85 @@ footer code{font-family:var(--mono)}
 <span class="ty">CompletableFuture</span>&lt;<span class="ty">Enriched</span>&gt; <span class="fn">enrich</span>(<span class="ty">String</span> id) {
     <span class="kw">return</span> <span class="fn">quote</span>(id)
         .<span class="fn">thenCompose</span>(q -&gt; <span class="fn">rating</span>(q.issuer())
-        .<span class="fn">thenApply</span>(r -&gt; <span class="kw">new</span> <span class="ty">Enriched</span>(q, r)));  <span class="c">// nesting to keep q in scope</span>
+            .<span class="fn">thenApply</span>(r -&gt; <span class="kw">new</span> <span class="ty">Enriched</span>(q, r)));  <span class="c">// nested, to keep q in scope</span>
 }</pre>
-        <div class="note">Monadic coloring: futures infect every signature; intermediate values force nesting or ugly tuples; stack traces are executor frames.</div>
+        <div class="note">Monadic coloring: futures infect every signature, intermediate values force nesting, and stack traces show executor frames instead of your call chain.</div>
       </div>
     </div>
   </div>
 
-  <div class="callout"><span class="tag warn">nuance</span>*Coroutine stack traces are synthetic across suspension points; enable <code>-Dkotlinx.coroutines.debug</code> (or the IntelliJ debugger's coroutine agent) for creation stack traces. Virtual threads keep <b>true</b> stack traces — a real observability advantage.</div>
+  <div class="callout"><span class="tag warn">nuance</span>Coroutine stack traces are synthetic across suspension points; turn on <code>-Dkotlinx.coroutines.debug</code> (or IntelliJ's coroutine agent) to recover creation stack traces. Virtual threads keep <b>true</b> stack traces — a real observability win.</div>
 
   <h2 id="cps" style="font-size:19px;margin-top:34px"><span class="num">§1.1</span>Under the hood: the CPS transform</h2>
-  <p class="lede">CPS = continuation-passing style: instead of <em>returning</em> a value, a function receives a callback (a <code>Continuation</code>) representing everything that happens after it, and invokes it with the result. The Kotlin compiler applies this rewrite mechanically to every <code>suspend</code> fn — you write sequential code, it emits the callback machinery.</p>
+  <p class="lede"><b>CPS = continuation-passing style.</b> A continuation is "the rest of the computation" reified as an object. Instead of returning a value, a suspend function accepts a <code>Continuation</code> and, if it can't finish immediately, returns the marker <code>COROUTINE_SUSPENDED</code> and arranges for that continuation to be called later. The Kotlin compiler generates all of this. Below is the same <code>enrich</code> from above, as the compiler conceptually emits it.</p>
 
-  <div class="duo">
-    <div class="card k">
-      <h3>KOTLIN · what you write</h3>
-<pre><span class="kw">suspend fun</span> <span class="fn">enrich</span>(id: <span class="ty">String</span>): <span class="ty">Enriched</span> {
-    <span class="kw">val</span> q = <span class="fn">quote</span>(id)         <span class="c">// suspension point 0</span>
-    <span class="kw">val</span> r = <span class="fn">rating</span>(q.issuer)  <span class="c">// suspension point 1</span>
-    <span class="kw">return</span> <span class="ty">Enriched</span>(q, r)
-}</pre>
-    </div>
-    <div class="spine"><span class="eq approx">⇒</span></div>
-    <div class="card j">
-      <h3>WHAT THE COMPILER EMITS (conceptually)</h3>
-<pre><span class="c">// hidden param added; return type widened to Object</span>
-<span class="ty">Object</span> <span class="fn">enrich</span>(<span class="ty">String</span> id, <span class="ty">Continuation</span>&lt;<span class="ty">Enriched</span>&gt; cont) {
-    <span class="c">// one state-machine object per call; label = resume point,</span>
-    <span class="c">// fields spill locals that must survive suspension</span>
-    <span class="kw">switch</span> (sm.label) {
-      <span class="kw">case</span> <span class="str">0</span>:
-        sm.label = <span class="str">1</span>;
-        <span class="ty">Object</span> q = <span class="fn">quote</span>(id, sm);   <span class="c">// sm IS the continuation</span>
-        <span class="kw">if</span> (q == COROUTINE_SUSPENDED) <span class="kw">return</span> COROUTINE_SUSPENDED;
-        <span class="c">// completed synchronously → fall through, no scheduling</span>
-      <span class="kw">case</span> <span class="str">1</span>:
-        sm.q = q; sm.label = <span class="str">2</span>;
-        <span class="ty">Object</span> r = <span class="fn">rating</span>(q.issuer, sm);
-        <span class="kw">if</span> (r == COROUTINE_SUSPENDED) <span class="kw">return</span> COROUTINE_SUSPENDED;
-      <span class="kw">case</span> <span class="str">2</span>:
-        <span class="kw">return new</span> <span class="ty">Enriched</span>(sm.q, r);
+  <div class="card j" style="margin-bottom:16px">
+    <h3>WHAT THE COMPILER EMITS — conceptually, but complete</h3>
+<pre><span class="c">// ── 1. The state machine. It IS the continuation, and it IS the</span>
+<span class="c">//    coroutine's "stack frame" — one small heap object per call.</span>
+<span class="kw">class</span> <span class="ty">EnrichSM</span> <span class="kw">extends</span> <span class="ty">ContinuationImpl</span> {
+    <span class="kw">int</span>    label  = <span class="str">0</span>;      <span class="c">// WHERE to resume (which case of the switch)</span>
+    <span class="ty">String</span> id;              <span class="c">// ── spilled locals: any variable that must</span>
+    <span class="ty">Quote</span>  q;               <span class="c">//    survive across a suspension lives here,</span>
+    <span class="ty">Object</span> result;          <span class="c">//    not on the JVM stack (the stack unwinds!)</span>
+
+    <span class="ty">EnrichSM</span>(<span class="ty">Continuation</span>&lt;?&gt; caller) { <span class="kw">super</span>(caller); }
+
+    <span class="c">// Called by whoever finishes the async work (e.g. the IO dispatcher</span>
+    <span class="c">// thread once the JDBC call returns). This is the "callback".</span>
+    <span class="an">@Override</span> <span class="kw">public void</span> <span class="fn">resumeWith</span>(<span class="ty">Object</span> value) {
+        <span class="kw">this</span>.result = value;
+        <span class="fn">enrich</span>(<span class="kw">null</span>, <span class="kw">this</span>);   <span class="c">// re-enter the method; switch jumps to `label`</span>
     }
 }
-<span class="c">// later, when the async result arrives:</span>
-<span class="c">// dispatcher calls sm.resumeWith(result) → re-enters at label</span></pre>
-    </div>
+
+<span class="c">// ── 2. The function. Note the signature change: a hidden Continuation</span>
+<span class="c">//    parameter, and Object return (either the real value, or the</span>
+<span class="c">//    COROUTINE_SUSPENDED marker).</span>
+<span class="ty">Object</span> <span class="fn">enrich</span>(<span class="ty">String</span> id, <span class="ty">Continuation</span>&lt;<span class="ty">Enriched</span>&gt; cont) {
+
+    <span class="ty">EnrichSM</span> sm = (cont <span class="kw">instanceof</span> <span class="ty">EnrichSM</span> e)
+        ? e                          <span class="c">// we are being RESUMED: reuse the frame</span>
+        : <span class="kw">new</span> <span class="ty">EnrichSM</span>(cont);        <span class="c">// first call: allocate the frame</span>
+
+    <span class="ty">Object</span> result = sm.result;      <span class="c">// whatever resumeWith() handed back</span>
+
+    <span class="kw">switch</span> (sm.label) {
+
+        <span class="kw">case</span> <span class="str">0</span>:                                  <span class="c">// ── entry point</span>
+            sm.id    = id;                       <span class="c">// spill: needed after resume</span>
+            sm.label = <span class="str">1</span>;                       <span class="c">// "if I'm re-entered, go to case 1"</span>
+            result   = <span class="fn">quote</span>(id, sm);            <span class="c">// pass sm AS the continuation</span>
+            <span class="kw">if</span> (result == COROUTINE_SUSPENDED)
+                <span class="kw">return</span> COROUTINE_SUSPENDED;      <span class="c">// UNWIND. thread is now free.</span>
+            <span class="c">// not suspended? quote() had the value ready — fall straight</span>
+            <span class="c">// through with zero scheduling overhead (the fast path).</span>
+
+        <span class="kw">case</span> <span class="str">1</span>:                                  <span class="c">// ── resumed after quote()</span>
+            <span class="ty">Quote</span> q  = (<span class="ty">Quote</span>) result;            <span class="c">// value from fall-through OR resumeWith</span>
+            sm.q     = q;                        <span class="c">// spill it: needed in case 2</span>
+            sm.label = <span class="str">2</span>;
+            result   = <span class="fn">rating</span>(q.<span class="fn">getIssuer</span>(), sm);
+            <span class="kw">if</span> (result == COROUTINE_SUSPENDED)
+                <span class="kw">return</span> COROUTINE_SUSPENDED;
+
+        <span class="kw">case</span> <span class="str">2</span>:                                  <span class="c">// ── resumed after rating()</span>
+            <span class="ty">Rating</span> r = (<span class="ty">Rating</span>) result;
+            <span class="kw">return new</span> <span class="ty">Enriched</span>(sm.q, r);        <span class="c">// the coroutine's return value</span>
+    }
+    <span class="kw">throw new</span> <span class="ty">IllegalStateException</span>();
+}</pre>
+    <div class="note">Read it as a loop you re-enter: each suspension point is a <code>case</code>, <code>label</code> is the program counter, and the <code>sm</code> fields are the stack frame — on the heap, so the real thread stack can unwind completely. <em>Simplified:</em> the real compiler splits this across a separate <code>invokeSuspend</code> method (where the switch and spills actually live), and the sentinel is <code>IntrinsicsKt.getCOROUTINE_SUSPENDED()</code>. Shown fused for readability.</div>
   </div>
 
   <table>
-    <tr><th>Mechanism</th><th>Consequence</th></tr>
-    <tr><td>Hidden <code>Continuation</code> parameter on every suspend fn</td><td>Why suspend fns can only be called from suspend contexts — callers must have a continuation to pass. This <em>is</em> the function coloring.</td></tr>
-    <tr><td>State-machine object holds <code>label</code> + spilled locals</td><td>The coroutine's "stack frame" lives on the heap — a suspended coroutine costs a small object, not a ~1&nbsp;MB thread stack.</td></tr>
-    <tr><td><code>COROUTINE_SUSPENDED</code> sentinel unwinds the call chain</td><td>The thread is freed immediately; resumption re-enters the <code>switch</code> at the saved label. If the callee finishes synchronously, execution falls through with zero scheduling overhead.</td></tr>
-    <tr><td>Rewrite happens at <b>compile time</b> (Kotlin compiler)</td><td>Only <code>suspend</code> points can unmount. Loom does the equivalent stack capture at <b>runtime in the JVM</b> — any blocking call unmounts, no signature change. Same idea, different layer (see §0). Also why coroutine stack traces are synthetic: the real stack unwound; what remains is a chain of continuation objects.</td></tr>
+    <tr><th>Mechanism in the code above</th><th>Why it matters</th></tr>
+    <tr><td>Hidden <code>Continuation</code> parameter</td><td>A caller can only invoke <code>enrich</code> if it has a continuation to pass — which is exactly why suspend functions are callable only from suspend contexts. <em>That</em> is the function coloring, and it's the whole mechanism.</td></tr>
+    <tr><td><code>label</code> + spilled fields (<code>id</code>, <code>q</code>)</td><td>The coroutine's frame lives on the heap — one small object. A platform thread instead <em>reserves</em> up to ~1&nbsp;MB of stack address space (committed lazily, so resident memory is less), which is what caps you at thousands, not millions.</td></tr>
+    <tr><td><code>return COROUTINE_SUSPENDED</code></td><td>The method returns immediately and the whole Java call stack unwinds, freeing the thread. Nothing is "waiting" anywhere.</td></tr>
+    <tr><td><code>resumeWith(value)</code> re-enters the <code>switch</code></td><td>Resumption is just a normal method call from whichever thread completed the work — hence you can resume on a different thread than you suspended on.</td></tr>
+    <tr><td>Fall-through when not suspended</td><td>The fast path: if the callee already had the value, no state is saved and no dispatch happens. Suspension is only paid for when it actually occurs.</td></tr>
+    <tr><td>Compile-time rewrite</td><td>Only <code>suspend</code> calls become suspension points. Loom does the equivalent frame capture at <b>runtime, in the JVM</b>, so <em>any</em> blocking call can unmount and no signature changes. Same idea, different layer. It's also why coroutine stack traces are synthetic: the real stack unwound, and what remains is a chain of continuation objects.</td></tr>
   </table>
 </section>
 
@@ -422,13 +457,13 @@ footer code{font-family:var(--mono)}
 
   <table>
     <tr><th class="kcol">Kotlin</th><th>Semantics</th><th class="jcol">Java equivalent</th></tr>
-    <tr><td class="kcol"><code>runBlocking { }</code></td><td>Bridge sync→suspend; blocks caller thread until done</td><td><code>future.join()</code> / plain <code>main()</code> on a VT (<code>Thread.ofVirtual().start()</code> + join)</td></tr>
+    <tr><td class="kcol"><code>runBlocking { }</code></td><td>Bridge sync→suspend: installs an event loop and <em>runs</em> coroutines on the caller thread until done (not merely a park)</td><td>Nearest is <code>CompletableFuture...join()</code>, but that only parks — it doesn't run a scheduler. No exact analog</td></tr>
     <tr><td class="kcol"><code>scope.launch { }</code></td><td>Fire-and-manage; returns <code>Job</code>, no value</td><td><code>executor.submit(runnable)</code> → <code>Future&lt;?&gt;</code></td></tr>
     <tr><td class="kcol"><code>scope.async { }</code></td><td>Concurrent value; returns <code>Deferred&lt;T&gt;</code>, get via <code>.await()</code></td><td><code>executor.submit(callable)</code> → <code>Future&lt;T&gt;.get()</code>, or <code>CompletableFuture.supplyAsync</code></td></tr>
-    <tr><td class="kcol"><code>coroutineScope { }</code></td><td>Suspend fn that waits for all children; failure cancels siblings</td><td><code>StructuredTaskScope.open()</code> (JDK 25 preview) — see §3</td></tr>
-    <tr><td class="kcol"><code>supervisorScope { }</code></td><td>Child failure does <em>not</em> cancel siblings</td><td><code>StructuredTaskScope.open(Joiner.awaitAll())</code></td></tr>
+    <tr><td class="kcol"><code>coroutineScope { }</code></td><td>Suspend fn that waits for all children; any failure cancels the siblings and rethrows</td><td><code>StructuredTaskScope.open()</code> (default all-or-fail policy) — see §3</td></tr>
+    <tr><td class="kcol"><code>supervisorScope { }</code></td><td>Child failure is isolated — siblings keep running; the scope still joins them</td><td>No clean analog: <code>StructuredTaskScope</code> (STS) couples the failure policy to the <code>Joiner</code>. Closest is a custom <code>Joiner</code> that records failures without cancelling (cf. the JEP 525 partial-collector), <em>not</em> <code>awaitAll()</code></td></tr>
     <tr><td class="kcol"><code>withContext(ctx) { }</code></td><td>Switch dispatcher/context for a block, sequential</td><td>No direct analog — VT code doesn't switch threads; nearest: submit to another executor and join</td></tr>
-    <tr><td class="kcol"><code>GlobalScope.launch</code></td><td>Unstructured, app-lifetime coroutine — <b>avoid</b></td><td><code>new Thread(...).start()</code> — equally frowned upon</td></tr>
+    <tr><td class="kcol"><code>GlobalScope.launch</code></td><td>Unstructured, app-lifetime coroutine — <b>avoid</b></td><td><code>new Thread(...).start()</code>, or <code>@Async</code> with no configured executor — orphaned work nobody joins or cancels</td></tr>
   </table>
 
   <div class="callout good"><span class="tag ok">spring</span>In Spring, don't hand-roll scopes per request: WebFlux and WebMVC (Framework 6.x) both accept <code>suspend fun</code> controller methods and manage the scope for you. For app-lifecycle scopes, create one <code>CoroutineScope(SupervisorJob() + Dispatchers.Default)</code> bean and cancel it in <code>@PreDestroy</code> — the analog of a Spring-managed <code>ExecutorService</code> with <code>shutdown()</code>.</div>
@@ -437,7 +472,7 @@ footer code{font-family:var(--mono)}
 <!-- ============ 3 STRUCTURED ============ -->
 <section id="structured">
   <h2><span class="num">§3</span>Structured concurrency</h2>
-  <p class="lede">The core contract: <b>a concurrent task cannot outlive the block that started it</b>, failures propagate to the parent, and cancellation propagates to children. Kotlin has had this since 2018; Java is standardizing the same shape via <code>StructuredTaskScope</code> (JEP 505, 5th preview in JDK 25 — API renamed from the JDK 21 <code>ShutdownOnFailure</code> era to <code>open(Joiner)</code>).</p>
+  <p class="lede">The core contract: <b>a concurrent task cannot outlive the block that started it</b>, failures propagate to the parent, and cancellation propagates to children. Kotlin has had this since 2018; Java is standardizing the same shape via <code>StructuredTaskScope</code> (JEP 505, 5th preview in JDK 25 — the JDK 21-era <code>ShutdownOnFailure</code> constructors were replaced by <code>open(Joiner)</code>). It is <b>still a preview API</b>: JDK 26 (JEP 525) renames <code>anySuccessfulResultOrThrow</code> → <code>anySuccessfulOrThrow</code>, makes <code>allSuccessfulOrThrow</code> return a <code>List</code>, and adds <code>Joiner.onTimeout()</code>. Pin your JDK before depending on the exact spelling.</p>
 
   <figure>
   <svg viewBox="0 0 980 250" role="img" aria-label="Structured concurrency failure propagation tree">
@@ -463,7 +498,7 @@ footer code{font-family:var(--mono)}
     <line x1="10" y1="170" x2="970" y2="170" stroke="#2a343f"/>
     <text x="10" y="196" class="svg-m" font-size="11.5">· No leaked work: leaving the block guarantees every child is complete or cancelled — same guarantee both languages.</text>
     <text x="10" y="216" class="svg-m" font-size="11.5">· Supervisor variant (supervisorScope / Joiner.awaitAll): B's failure is recorded, A and C keep running.</text>
-    <text x="10" y="236" class="svg-m" font-size="11.5">· CompletableFuture has NO such guarantee — allOf() completes exceptionally but sibling futures keep computing unless you wire cancellation by hand.</text>
+    <text x="10" y="236" class="svg-m" font-size="11">· CompletableFuture has NO such guarantee — allOf() completes exceptionally, but sibling futures keep computing unless you cancel them by hand.</text>
   </svg>
   <figcaption>fig 1 — failure propagation: one child fails → siblings cancelled → exception rethrown at the join point.</figcaption>
   </figure>
@@ -508,7 +543,7 @@ footer code{font-family:var(--mono)}
         <div class="note">JDK 21–24 preview spelling: <code>new StructuredTaskScope.ShutdownOnFailure()</code> + <code>scope.join().throwIfFailed()</code>. Same semantics, older API.</div>
       </div>
       <div class="card j">
-        <h3>JAVA · without VT/STS (CompletableFuture)</h3>
+        <h3>JAVA · without virtual threads or StructuredTaskScope</h3>
 <pre><span class="kw">var</span> pos = CompletableFuture.<span class="fn">supplyAsync</span>(() -&gt; positions(id), pool);
 <span class="kw">var</span> pnl = CompletableFuture.<span class="fn">supplyAsync</span>(() -&gt; pnl(id), pool);
 <span class="kw">try</span> {
@@ -531,8 +566,8 @@ footer code{font-family:var(--mono)}
   <table>
     <tr><th class="kcol">Kotlin dispatcher</th><th>Sized for</th><th class="jcol">Java executor analog</th></tr>
     <tr><td class="kcol"><code>Dispatchers.Default</code></td><td>CPU-bound · threads = #cores</td><td><code>ForkJoinPool.commonPool()</code> / fixed pool of #cores</td></tr>
-    <tr><td class="kcol"><code>Dispatchers.IO</code></td><td>Blocking I/O · elastic, ≥64 threads (shares threads with Default)</td><td><code>newCachedThreadPool()</code> — or with Loom: <code>newVirtualThreadPerTaskExecutor()</code>, which makes the whole distinction obsolete</td></tr>
-    <tr><td class="kcol"><code>ioDispatcher.limitedParallelism(n)</code></td><td>Cap concurrency to a view of n</td><td><code>Semaphore(n)</code> around submits, or a fixed pool of n</td></tr>
+    <tr><td class="kcol"><code>Dispatchers.IO</code></td><td>Blocking I/O · elastic, up to 64 threads (or #cores if larger), created on demand · shares one pool with Default (a blocking-flag is the only distinction)</td><td><code>newCachedThreadPool()</code> — or with Loom: <code>newVirtualThreadPerTaskExecutor()</code>, which makes the whole distinction obsolete</td></tr>
+    <tr><td class="kcol"><code>Dispatchers.IO.limitedParallelism(n)</code></td><td>A view that <b>bypasses</b> the 64 cap — genuinely n threads, additive across views. This is the modern replacement for <code>newFixedThreadPoolContext(n)</code></td><td><code>Semaphore(n)</code> around submits, or a fixed pool of n</td></tr>
     <tr><td class="kcol"><code>Dispatchers.Unconfined</code></td><td>Resume on whatever thread resumed you (tests, edge cases)</td><td>Caller-runs / same-thread executor (<code>Runnable::run</code>)</td></tr>
     <tr><td class="kcol"><code>Dispatchers.Loom</code>-style: <code>Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()</code></td><td>Run coroutines on VTs — lets blocking calls inside coroutines park cheaply</td><td>— (that <em>is</em> the Java side)</td></tr>
   </table>
@@ -546,15 +581,18 @@ footer code{font-family:var(--mono)}
   <table>
     <tr><th class="kcol">Kotlin</th><th class="jcol">Java (threads / VT)</th><th>Watch out</th></tr>
     <tr><td class="kcol"><code>job.cancel()</code> → <code>CancellationException</code> at next suspension point</td><td class="jcol"><code>thread.interrupt()</code> → <code>InterruptedException</code> at next blocking call</td><td>CPU loops: poll <code>isActive</code>/<code>ensureActive()</code> ↔ <code>Thread.interrupted()</code></td></tr>
-    <tr><td class="kcol"><code>withTimeout(2.seconds) { }</code> / <code>withTimeoutOrNull</code></td><td class="jcol">STS <code>cf.withTimeout(...)</code> (JDK 25) · <code>future.get(2, SECONDS)</code> · <code>orTimeout()</code></td><td class="dim"><code>orTimeout</code> completes the CF but doesn't stop the underlying work</td></tr>
+    <tr><td class="kcol"><code>withTimeout(2.seconds) { }</code> / <code>withTimeoutOrNull</code></td><td class="jcol"><code>StructuredTaskScope</code> deadline: <code>open(joiner, cf -&gt; cf.withTimeout(ofSeconds(2)))</code> — cancels the whole task tree · <code>future.get(2, SECONDS)</code> · <code>orTimeout()</code></td><td class="dim"><code>orTimeout</code> completes the CF but doesn't stop the underlying work</td></tr>
     <tr><td class="kcol"><code>withContext(NonCancellable) { cleanup() }</code></td><td class="jcol"><code>finally</code> block (interrupt flag survives; re-set it if you swallow)</td><td class="dim">Never call suspend fns in <code>finally</code> without <code>NonCancellable</code> — the coroutine is already cancelled</td></tr>
     <tr><td class="kcol"><code>CancellationException</code> is "normal" — never swallow it in a broad <code>catch (e: Exception)</code> without rethrowing</td><td class="jcol">Same sin: <code>catch (InterruptedException e) {}</code> — restore via <code>Thread.currentThread().interrupt()</code></td><td class="dim">Both silently break structured cancellation upstream</td></tr>
   </table>
+  <div class="callout"><span class="tag warn">the STS trap</span><code>StructuredTaskScope</code> cancellation is delivered <b>as an interrupt</b>. A subtask that never blocks at an interruptible point — a tight CPU loop, or uninterruptible native I/O — will not notice, and <code>scope.close()</code> (the implicit end of the try-with-resources) will <b>block indefinitely</b> waiting for it. Same shape as a coroutine that never hits a suspension point, but the consequence is worse: the scope can't exit. In CPU loops, poll <code>Thread.currentThread().isInterrupted()</code>.</div>
 </section>
 <!-- ============ 6 CHANNELS ============ -->
 <section id="channels">
-  <h2><span class="num">§6</span>Channels — CSP-style handoff</h2>
-  <p class="lede">A <code>Channel&lt;T&gt;</code> is a <code>BlockingQueue</code> where put/take <em>suspend</em> instead of block. With virtual threads, the plain <code>BlockingQueue</code> becomes a near-perfect equivalent — blocking a VT is what suspension is to a coroutine.</p>
+  <h2><span class="num">§6</span>Channels — handing work between coroutines</h2>
+  <p class="lede">A <code>Channel&lt;T&gt;</code> is a queue whose <code>send</code>/<code>receive</code> <b>suspend</b> instead of blocking. Suspension on a full buffer <em>is</em> the backpressure mechanism — no operators required.</p>
+
+  <div class="callout good"><span class="tag ok">the goal</span>All three versions below build the <b>same pipeline</b>: one producer reads a market-data feed, a bounded buffer of 1024 sits in the middle, and 4 workers index ticks in parallel. Each tick must be handled by <b>exactly one</b> worker, and if the workers fall behind, the producer must be slowed down rather than the buffer growing without bound.</p></div>
 
   <figure>
   <svg viewBox="0 0 980 170" role="img" aria-label="Channel producer consumer pipeline with suspension-based backpressure">
@@ -563,134 +601,327 @@ footer code{font-family:var(--mono)}
     <text x="95" y="87" class="svg-m" font-size="10.5" text-anchor="middle">ch.send(tick)</text>
     <path d="M 170 73 L 240 73" stroke="#3a4552" marker-end="url(#garr)"/>
     <defs><marker id="garr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3a4552"/></marker></defs>
-    <!-- buffer -->
     <g>
       <rect x="250" y="52" width="42" height="42" rx="6" fill="#46c28e33" stroke="#46c28e"/>
       <rect x="298" y="52" width="42" height="42" rx="6" fill="#46c28e33" stroke="#46c28e"/>
       <rect x="346" y="52" width="42" height="42" rx="6" fill="#46c28e33" stroke="#46c28e"/>
       <rect x="394" y="52" width="42" height="42" rx="6" fill="#1b232c" stroke="#3a4552" stroke-dasharray="4 3"/>
       <rect x="442" y="52" width="42" height="42" rx="6" fill="#1b232c" stroke="#3a4552" stroke-dasharray="4 3"/>
-      <text x="367" y="118" class="svg-m" font-size="11" text-anchor="middle">Channel(capacity = 1024) · ≈ ArrayBlockingQueue</text>
+      <text x="367" y="118" class="svg-m" font-size="11" text-anchor="middle">buffer of 1024 · full ⇒ send() suspends</text>
     </g>
     <path d="M 484 73 L 554 73" stroke="#3a4552" marker-end="url(#garr)"/>
-    <rect x="560" y="30" width="150" height="40" rx="8" fill="#4e9cdb22" stroke="#4e9cdb"/>
-    <text x="635" y="55" class="svg-t" font-size="12" text-anchor="middle">consumer 1</text>
-    <rect x="560" y="80" width="150" height="40" rx="8" fill="#4e9cdb22" stroke="#4e9cdb"/>
-    <text x="635" y="105" class="svg-t" font-size="12" text-anchor="middle">consumer 2</text>
-    <text x="740" y="48" class="svg-m" font-size="11">fan-out for free: each element</text>
-    <text x="740" y="65" class="svg-m" font-size="11">delivered to exactly ONE consumer</text>
-    <text x="740" y="95" class="svg-m" font-size="11">full buffer → send() suspends /</text>
-    <text x="740" y="112" class="svg-m" font-size="11">put() parks the VT = backpressure</text>
-    <text x="20" y="150" class="svg-m" font-size="11.5">Capacities: RENDEZVOUS(0) ≈ SynchronousQueue · BUFFERED(64) / n ≈ ArrayBlockingQueue(n) · UNLIMITED ≈ LinkedBlockingQueue · CONFLATED (keep-latest) ≈ no JDK equivalent (AtomicReference + signal by hand)</text>
+    <rect x="560" y="26" width="150" height="38" rx="8" fill="#4e9cdb22" stroke="#4e9cdb"/>
+    <text x="635" y="50" class="svg-t" font-size="12" text-anchor="middle">worker 1</text>
+    <rect x="560" y="84" width="150" height="38" rx="8" fill="#4e9cdb22" stroke="#4e9cdb"/>
+    <text x="635" y="108" class="svg-t" font-size="12" text-anchor="middle">worker 2 … 4</text>
+    <text x="740" y="48" class="svg-m" font-size="11">each tick goes to exactly ONE</text>
+    <text x="740" y="65" class="svg-m" font-size="11">worker (competing consumers)</text>
+    <text x="740" y="95" class="svg-m" font-size="11">a slow worker ⇒ buffer fills ⇒</text>
+    <text x="740" y="112" class="svg-m" font-size="11">producer suspends = backpressure</text>
+    <text x="20" y="150" class="svg-m" font-size="10.5">Capacities: RENDEZVOUS(0) ≈ SynchronousQueue · n ≈ ArrayBlockingQueue(n) · UNLIMITED ≈ LinkedBlockingQueue · CONFLATED = keep latest only</text>
   </svg>
-  <figcaption>fig 2 — suspension IS the backpressure. No onBackpressureX operators needed at this layer.</figcaption>
+  <figcaption>fig 2 — suspension IS the backpressure. Nothing is polled, nothing is dropped.</figcaption>
   </figure>
 
+  <div class="card k" style="margin-bottom:14px">
+    <h3>KOTLIN · the complete pipeline</h3>
+<pre><span class="kw">suspend fun</span> <span class="fn">indexFeed</span>(feed: <span class="ty">Flow</span>&lt;<span class="ty">Tick</span>&gt;) = <span class="fn">coroutineScope</span> {
+
+    <span class="kw">val</span> ch = <span class="ty">Channel</span>&lt;<span class="ty">Tick</span>&gt;(capacity = <span class="str">1024</span>)      <span class="c">// the bounded buffer</span>
+
+    <span class="c">// ── PRODUCER ────────────────────────────────────────────────</span>
+    <span class="fn">launch</span> {
+        <span class="kw">try</span> {
+            feed.<span class="fn">collect</span> { tick -&gt;
+                ch.<span class="fn">send</span>(tick)      <span class="c">// SUSPENDS while the buffer is full.</span>
+            }                     <span class="c">// The thread is released; the producer</span>
+        } <span class="kw">finally</span> {             <span class="c">// simply stops pulling from the feed.</span>
+            ch.<span class="fn">close</span>()           <span class="c">// broadcasts "no more items" to ALL workers</span>
+        }
+    }
+
+    <span class="c">// ── 4 WORKERS, all receiving from the SAME channel ──────────</span>
+    <span class="kw">repeat</span>(<span class="str">4</span>) {
+        <span class="fn">launch</span> {
+            <span class="kw">for</span> (tick <span class="kw">in</span> ch) {    <span class="c">// suspends while empty; each tick is</span>
+                <span class="fn">index</span>(tick)         <span class="c">// delivered to exactly ONE worker</span>
+            }                     <span class="c">// loop exits cleanly once ch is closed AND drained</span>
+        }
+    }
+    <span class="c">// coroutineScope waits here for the producer + all 4 workers.</span>
+    <span class="c">// If any of them throws, the others are cancelled (see §3).</span>
+}</pre>
+    <div class="note">Three things do real work here: <code>send</code> suspending gives backpressure for free, <code>close()</code> is a first-class end-of-stream signal that terminates every consumer's <code>for</code> loop, and <code>coroutineScope</code> guarantees no worker outlives the function.</div>
+  </div>
+
   <div class="duo">
-    <div class="card k">
-      <h3>KOTLIN · Channel pipeline</h3>
-<pre><span class="kw">val</span> ch = <span class="ty">Channel</span>&lt;<span class="ty">Tick</span>&gt;(capacity = <span class="str">1024</span>)
+    <div class="card v">
+      <h3>JAVA · the same pipeline, on virtual threads</h3>
+<pre><span class="c">// The translation is mechanical:</span>
+<span class="c">//   Channel(1024)  ->  ArrayBlockingQueue(1024)</span>
+<span class="c">//   send / receive ->  put / take   (BLOCK instead of suspend)</span>
+<span class="c">//   close()        ->  a "poison pill" sentinel  (no built-in equivalent)</span>
+<span class="c">// On virtual threads, a blocked put/take unmounts the carrier —</span>
+<span class="c">// so blocking here costs about what suspending costs in Kotlin.</span>
 
-scope.<span class="fn">launch</span> {                       <span class="c">// producer</span>
-    feed.<span class="fn">collect</span> { ch.<span class="fn">send</span>(it) }     <span class="c">// suspends when full</span>
-    ch.<span class="fn">close</span>()                       <span class="c">// signals end-of-stream</span>
-}
-<span class="kw">repeat</span>(<span class="str">4</span>) {                          <span class="c">// 4 consumers, work-stealing</span>
-    scope.<span class="fn">launch</span> { <span class="kw">for</span> (t <span class="kw">in</span> ch) <span class="fn">index</span>(t) }   <span class="c">// loop ends on close</span>
-}
+<span class="kw">void</span> <span class="fn">indexFeed</span>(<span class="ty">Iterable</span>&lt;<span class="ty">Tick</span>&gt; feed) <span class="kw">throws</span> <span class="ty">InterruptedException</span> {
 
-<span class="c">// select over multiple channels (no JDK equivalent):</span>
-<span class="fn">select</span> {
-    ticks.onReceive  { <span class="fn">handleTick</span>(it) }
-    orders.onReceive { <span class="fn">handleOrder</span>(it) }
-    onTimeout(<span class="str">500</span>.milliseconds) { <span class="fn">heartbeat</span>() }
-}</pre>
-    </div>
-    <div class="spine"><span class="eq approx">≈</span></div>
-    <div class="stack">
-      <div class="card v">
-        <h3>JAVA · BlockingQueue + virtual threads</h3>
-<pre><span class="kw">var</span> q = <span class="kw">new</span> <span class="ty">ArrayBlockingQueue</span>&lt;<span class="ty">Tick</span>&gt;(<span class="str">1024</span>);
-<span class="kw">var</span> POISON = <span class="ty">Tick</span>.<span class="fn">sentinel</span>();          <span class="c">// no close(): use a poison pill</span>
+    <span class="kw">var</span> queue  = <span class="kw">new</span> <span class="ty">ArrayBlockingQueue</span>&lt;<span class="ty">Tick</span>&gt;(<span class="str">1024</span>);
+    <span class="kw">final</span> <span class="ty">Tick</span> POISON = <span class="ty">Tick</span>.SENTINEL;   <span class="c">// stands in for close()</span>
 
-<span class="kw">try</span> (<span class="kw">var</span> exec = Executors.<span class="fn">newVirtualThreadPerTaskExecutor</span>()) {
-    exec.<span class="fn">submit</span>(() -&gt; { <span class="kw">for</span> (<span class="kw">var</span> t : feed) q.<span class="fn">put</span>(t); q.<span class="fn">put</span>(POISON); });
-    <span class="kw">for</span> (<span class="kw">int</span> i = <span class="str">0</span>; i &lt; <span class="str">4</span>; i++)
+    <span class="kw">try</span> (<span class="kw">var</span> exec = Executors.<span class="fn">newVirtualThreadPerTaskExecutor</span>()) {
+
+        <span class="c">// ── PRODUCER ────────────────────────────────────────────</span>
         exec.<span class="fn">submit</span>(() -&gt; {
-            <span class="kw">for</span> (<span class="ty">Tick</span> t; (t = q.<span class="fn">take</span>()) != POISON; ) <span class="fn">index</span>(t);
-            q.<span class="fn">put</span>(POISON);              <span class="c">// re-inject for next consumer</span>
+            <span class="kw">for</span> (<span class="ty">Tick</span> t : feed) {
+                queue.<span class="fn">put</span>(t);      <span class="c">// BLOCKS while full — but only a virtual</span>
+            }                     <span class="c">// thread parks, so this IS backpressure</span>
+            <span class="kw">for</span> (<span class="kw">int</span> i = <span class="str">0</span>; i &lt; <span class="str">4</span>; i++)
+                queue.<span class="fn">put</span>(POISON);  <span class="c">// one pill per worker, so each one exits</span>
+            <span class="kw">return null</span>;
         });
+
+        <span class="c">// ── 4 WORKERS ───────────────────────────────────────────</span>
+        <span class="kw">for</span> (<span class="kw">int</span> i = <span class="str">0</span>; i &lt; <span class="str">4</span>; i++) {
+            exec.<span class="fn">submit</span>(() -&gt; {
+                <span class="kw">while</span> (<span class="kw">true</span>) {
+                    <span class="ty">Tick</span> t = queue.<span class="fn">take</span>();   <span class="c">// parks while empty; one tick,</span>
+                    <span class="kw">if</span> (t == POISON) <span class="kw">return null</span>;  <span class="c">// one worker</span>
+                    <span class="fn">index</span>(t);
+                }
+            });
+        }
+    }  <span class="c">// close() on the executor waits for producer + all workers</span>
 }</pre>
-        <div class="note"><code>put()</code> parking a VT is cheap — pre-Loom this pattern needed careful pool sizing; now it's idiomatic. Missing vs Kotlin: <code>close()</code> semantics, <code>select{}</code>, conflation.</div>
-      </div>
-      <div class="card j">
-        <h3>JAVA · without VT</h3>
-<pre><span class="c">// Same BlockingQueue code, but each blocked producer/consumer</span>
-<span class="c">// pins a platform thread (~1 MB). Beyond a few hundred parties</span>
-<span class="c">// you were pushed toward Reactor:</span>
-Sinks.Many&lt;<span class="ty">Tick</span>&gt; sink =
-    Sinks.many().multicast().<span class="fn">onBackpressureBuffer</span>(<span class="str">1024</span>);
-sink.<span class="fn">tryEmitNext</span>(tick);              <span class="c">// producer (check EmitResult!)</span>
-sink.<span class="fn">asFlux</span>().<span class="fn">subscribe</span>(this::index); <span class="c">// consumer</span></pre>
-        <div class="note">This is precisely the pressure that created the reactive ecosystem — thread scarcity, not love of operators.</div>
-      </div>
+      <div class="note">What's genuinely missing versus Kotlin: a real <code>close()</code> (hence the pill), <code>select</code> over several queues, and conflation. What you gain: plain, debuggable, thread-per-task code with true stack traces.</div>
     </div>
+    <div class="spine"><span class="eq part">vs</span></div>
+    <div class="card j">
+      <h3>JAVA · the same pipeline, pre-Loom</h3>
+<pre><span class="c">// The SAME BlockingQueue code still compiles and runs. The problem</span>
+<span class="c">// is cost: every parked producer/consumer holds a PLATFORM thread</span>
+<span class="c">// (~1 MB of stack). A few hundred pipelines and you are out of</span>
+<span class="c">// threads long before you are out of CPU.</span>
+<span class="c">//</span>
+<span class="c">// The reactive answer inverts the design: NOBODY waits. Instead of</span>
+<span class="c">// a consumer blocking on take(), the producer PUSHES items to</span>
+<span class="c">// subscribers, and demand travels back upstream as a protocol</span>
+<span class="c">// (Subscription.request(n)) rather than as a parked thread.</span>
+<span class="c">//</span>
+<span class="c">// A "Sink" is Reactor's push-end of a stream: the object you call</span>
+<span class="c">// from ordinary imperative code to feed items INTO a Flux.</span>
+
+<span class="ty">Sinks</span>.<span class="ty">Many</span>&lt;<span class="ty">Tick</span>&gt; sink = Sinks.<span class="fn">many</span>()
+        .<span class="fn">multicast</span>()                    <span class="c">// one stream, many subscribers</span>
+        .<span class="fn">onBackpressureBuffer</span>(<span class="str">1024</span>);    <span class="c">// the bounded buffer</span>
+
+<span class="c">// ── PRODUCER: called from wherever the feed already lives ──</span>
+<span class="kw">void</span> <span class="fn">onTick</span>(<span class="ty">Tick</span> t) {
+    <span class="ty">Sinks</span>.<span class="ty">EmitResult</span> res = sink.<span class="fn">tryEmitNext</span>(t);  <span class="c">// returns IMMEDIATELY</span>
+    <span class="kw">if</span> (res.<span class="fn">isFailure</span>()) {          <span class="c">// buffer full / no demand:</span>
+        metrics.<span class="fn">dropped</span>();          <span class="c">// there is no thread to park, so YOU</span>
+    }                              <span class="c">// must choose: drop, retry, or fail</span>
+}
+
+<span class="c">// ── 4 WORKERS: .parallel(4) splits the stream into 4 "rails",</span>
+<span class="c">//    each element going to exactly one rail — the competing-</span>
+<span class="c">//    consumers behaviour a Channel gives you by default.</span>
+sink.<span class="fn">asFlux</span>()
+    .<span class="fn">parallel</span>(<span class="str">4</span>)
+    .<span class="fn">runOn</span>(Schedulers.<span class="fn">parallel</span>())
+    .<span class="fn">subscribe</span>(<span class="kw">this</span>::index);</pre>
+      <div class="note">Note the semantic trap: a plain <code>multicast()</code> Flux <b>broadcasts</b> every element to every subscriber — unlike a Channel, where each element goes to one consumer. <code>.parallel(n)</code> is what restores work-distribution. And backpressure is no longer automatic: <code>tryEmitNext</code> can fail and you must handle it.</div>
+    </div>
+  </div>
+
+  <div class="card k" style="margin-top:14px">
+    <h3>KOTLIN · <code>select</code> — waiting on several channels at once (no JDK equivalent)</h3>
+<pre><span class="c">// Take whichever arrives FIRST, from any of several sources,</span>
+<span class="c">// with a timeout as just another branch. In Java you would hand-roll</span>
+<span class="c">// this with a shared queue, a poller, or CompletableFuture.anyOf.</span>
+<span class="kw">while</span> (isActive) {
+    <span class="fn">select</span>&lt;<span class="ty">Unit</span>&gt; {
+        ticks.<span class="fn">onReceive</span>  { t -&gt; <span class="fn">handleTick</span>(t) }     <span class="c">// a tick arrived first</span>
+        orders.<span class="fn">onReceive</span> { o -&gt; <span class="fn">handleOrder</span>(o) }    <span class="c">// an order arrived first</span>
+        <span class="fn">onTimeout</span>(<span class="str">500</span>.milliseconds) { <span class="fn">heartbeat</span>() }  <span class="c">// nothing arrived at all</span>
+    }
+}</pre>
   </div>
 </section>
 
 <!-- ============ 7 FLOWS ============ -->
 <section id="flows">
-  <h2><span class="num">§7</span>Flow ↔ Reactor (and why Streams don't count)</h2>
-  <p class="lede"><code>Flow&lt;T&gt;</code> is a <b>cold, suspending, asynchronous stream</b> — same conceptual slot as <code>Flux&lt;T&gt;</code>. Nothing runs until collected/subscribed; each collector gets a fresh run; backpressure is implicit (the collector's suspension slows the emitter). <code>java.util.stream.Stream</code> is synchronous pull, single-use, no time dimension — not an equivalent. <code>java.util.concurrent.Flow</code> (JEP 266) is just the Reactive Streams <em>interfaces</em> — the JDK ships no operators; Reactor/RxJava provide them.</p>
+  <h2><span class="num">§7</span>Flow ↔ Reactor — asynchronous streams</h2>
+  <p class="lede">A <code>Flow&lt;T&gt;</code> is a <b>cold, suspending stream</b>: a recipe that produces values over time. Nothing runs until you collect it, each collector gets its own fresh run, and backpressure is implicit — a slow collector simply suspends the emitter. <code>Flux&lt;T&gt;</code> occupies the same conceptual slot in Reactor.</p>
+  <p class="lede"><code>java.util.stream.Stream</code> is <em>not</em> an equivalent: it's synchronous, pull-only, single-use, and has no notion of time. And <code>java.util.concurrent.Flow</code> (JEP 266) is only the Reactive-Streams <em>interfaces</em> — the JDK ships zero operators; Reactor and RxJava supply them.</p>
+
+  <div class="callout good"><span class="tag ok">the goal</span>Both snippets below build the <b>same live price feed</b> for one symbol: poll the source repeatedly, normalise each tick, discard bad prices, keep going if the source errors (substituting a stale marker, retrying up to 3×), and decouple the producer from a slow consumer with a 256-element buffer so a slow subscriber can't stall the poll loop.</div>
 
   <div class="duo">
     <div class="card k">
       <h3>KOTLIN · Flow</h3>
-<pre><span class="kw">fun</span> <span class="fn">ticks</span>(sym: <span class="ty">String</span>): <span class="ty">Flow</span>&lt;<span class="ty">Tick</span>&gt; = <span class="fn">flow</span> {
-    <span class="kw">while</span> (currentCoroutineContext().isActive)
-        <span class="fn">emit</span>(<span class="fn">poll</span>(sym))              <span class="c">// suspend-friendly emitter</span>
+<pre><span class="kw">fun</span> <span class="fn">ticks</span>(sym: <span class="ty">String</span>): <span class="ty">Flow</span>&lt;<span class="ty">Tick</span>&gt; = <span class="fn">flow</span> {   <span class="c">// COLD: this block re-runs</span>
+    <span class="kw">while</span> (currentCoroutineContext().isActive) {  <span class="c">//   for each collector</span>
+        <span class="fn">emit</span>(<span class="fn">poll</span>(sym))                  <span class="c">// emit() can suspend — no callbacks</span>
+    }
 }
-.<span class="fn">map</span> { <span class="fn">normalize</span>(it) }
-.<span class="fn">filter</span> { it.px &gt; <span class="str">0</span> }
-.<span class="fn">buffer</span>(<span class="str">256</span>)                          <span class="c">// decouple emitter/collector</span>
-.<span class="fn">flowOn</span>(Dispatchers.IO)               <span class="c">// context for everything ABOVE</span>
-.<span class="fn">catch</span> { e -&gt; <span class="fn">emit</span>(<span class="ty">Tick</span>.stale(sym)) }
-.<span class="fn">retry</span>(<span class="str">3</span>)
+.<span class="fn">map</span> { <span class="fn">normalize</span>(it) }                  <span class="c">// transform each tick</span>
+.<span class="fn">filter</span> { it.px &gt; <span class="str">0</span> }                  <span class="c">// drop bad prices</span>
+.<span class="fn">buffer</span>(<span class="str">256</span>)                            <span class="c">// run producer + consumer concurrently,</span>
+                                        <span class="c">//   with 256 slots between them</span>
+.<span class="fn">flowOn</span>(Dispatchers.IO)                 <span class="c">// everything ABOVE this line runs on IO</span>
+.<span class="fn">catch</span> { e -&gt; <span class="fn">emit</span>(<span class="ty">Tick</span>.stale(sym)) }   <span class="c">// upstream failed: substitute a value</span>
+.<span class="fn">retry</span>(<span class="str">3</span>)                              <span class="c">// ...or just re-run the whole flow, 3×</span>
 
-<span class="c">// terminal — suspends until complete:</span>
+<span class="c">// TERMINAL: nothing above has run yet. collect() starts it and</span>
+<span class="c">// SUSPENDS the caller until the flow completes.</span>
 ticks(<span class="str">"AAPL"</span>).<span class="fn">collect</span> { <span class="fn">publish</span>(it) }</pre>
     </div>
     <div class="spine"><span class="eq approx">≈</span></div>
     <div class="card j">
       <h3>REACTOR · Flux</h3>
 <pre><span class="ty">Flux</span>&lt;<span class="ty">Tick</span>&gt; <span class="fn">ticks</span>(<span class="ty">String</span> sym) {
-    <span class="kw">return</span> Flux.&lt;<span class="ty">Tick</span>&gt;<span class="fn">generate</span>(s -&gt; s.next(<span class="fn">poll</span>(sym)))
-        .<span class="fn">map</span>(this::normalize)
-        .<span class="fn">filter</span>(t -&gt; t.px() &gt; <span class="str">0</span>)
-        .<span class="fn">onBackpressureBuffer</span>(<span class="str">256</span>)
-        .<span class="fn">subscribeOn</span>(Schedulers.boundedElastic())
-        .<span class="fn">onErrorResume</span>(e -&gt; Flux.just(<span class="ty">Tick</span>.stale(sym)))
+    <span class="kw">return</span> Flux.&lt;<span class="ty">Tick</span>&gt;<span class="fn">generate</span>(s -&gt; s.<span class="fn">next</span>(<span class="fn">poll</span>(sym)))  <span class="c">// COLD too</span>
+        .<span class="fn">map</span>(<span class="kw">this</span>::normalize)               <span class="c">// same</span>
+        .<span class="fn">filter</span>(t -&gt; t.<span class="fn">px</span>() &gt; <span class="str">0</span>)             <span class="c">// same</span>
+        .<span class="fn">onBackpressureBuffer</span>(<span class="str">256</span>)          <span class="c">// == buffer(256)</span>
+        .<span class="fn">subscribeOn</span>(Schedulers.<span class="fn">boundedElastic</span>())  <span class="c">// == flowOn(IO)</span>
+        .<span class="fn">onErrorResume</span>(e -&gt; Flux.<span class="fn">just</span>(<span class="ty">Tick</span>.<span class="fn">stale</span>(sym)))  <span class="c">// == catch{}</span>
         .<span class="fn">retry</span>(<span class="str">3</span>);
 }
-<span class="c">// terminal — returns immediately, work happens on scheduler:</span>
-ticks(<span class="str">"AAPL"</span>).<span class="fn">subscribe</span>(this::publish);</pre>
-      <div class="note">Key ergonomic split: <code>collect</code> suspends the caller (sequential mental model); <code>subscribe</code> detaches (callback mental model). Reactor's explicit <code>request(n)</code> protocol crosses process boundaries (RSocket); Flow's suspension does not.</div>
+
+<span class="c">// TERMINAL: subscribe() starts it and RETURNS IMMEDIATELY.</span>
+<span class="c">// The work happens on a scheduler thread; results arrive by callback.</span>
+ticks(<span class="str">"AAPL"</span>).<span class="fn">subscribe</span>(<span class="kw">this</span>::publish);</pre>
+      <div class="note">The one deep difference: <code>collect</code> <b>suspends the caller</b> — you stay in sequential code and can wrap the whole thing in try/catch. <code>subscribe</code> <b>detaches</b> — you're in callback land, and errors must be routed through operators. Reactor's demand signal (<code>request(n)</code>) is an explicit protocol that can cross a network boundary (RSocket); Kotlin's suspension cannot — it's in-process only.</div>
     </div>
   </div>
 
+  <h2 id="marbles" style="font-size:19px;margin-top:34px"><span class="num">§7.1</span>The operators that actually cause bugs</h2>
+  <p class="lede">Names alone don't help. These four groups are where people get it wrong; each marble diagram reads left→right as time, and each row is one stream.</p>
+
+  <figure>
+  <svg viewBox="0 0 980 260" role="img" aria-label="Marble diagram comparing flatMapMerge, flatMapConcat and flatMapLatest">
+    <text x="0" y="16" class="svg-t" font-size="12.5">The flatMap family — each source item opens an inner stream. What happens when they overlap?</text>
+
+    <text x="0" y="48" class="svg-m" font-size="11">source</text>
+    <line x1="120" y1="44" x2="900" y2="44" stroke="#3a4552"/>
+    <circle cx="180" cy="44" r="11" fill="#a97bff22" stroke="#a97bff"/><text x="180" y="48" class="svg-t" font-size="10" text-anchor="middle">A</text>
+    <circle cx="330" cy="44" r="11" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="330" y="48" class="svg-t" font-size="10" text-anchor="middle">B</text>
+
+    <text x="0" y="82" class="svg-m" font-size="11">A ⇒ inner</text>
+    <line x1="120" y1="78" x2="900" y2="78" stroke="#3a4552" stroke-dasharray="3 3"/>
+    <circle cx="230" cy="78" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="230" y="82" class="svg-t" font-size="9" text-anchor="middle">a1</text>
+    <circle cx="310" cy="78" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="310" y="82" class="svg-t" font-size="9" text-anchor="middle">a2</text>
+    <circle cx="430" cy="78" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="430" y="82" class="svg-t" font-size="9" text-anchor="middle">a3</text>
+
+    <text x="0" y="112" class="svg-m" font-size="11">B ⇒ inner</text>
+    <line x1="120" y1="108" x2="900" y2="108" stroke="#3a4552" stroke-dasharray="3 3"/>
+    <circle cx="380" cy="108" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="380" y="112" class="svg-t" font-size="9" text-anchor="middle">b1</text>
+    <circle cx="480" cy="108" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="480" y="112" class="svg-t" font-size="9" text-anchor="middle">b2</text>
+
+    <line x1="0" y1="128" x2="980" y2="128" stroke="#2a343f"/>
+
+    <text x="0" y="154" class="svg-m" font-size="11">flatMapMerge</text>
+    <text x="0" y="168" class="svg-m" font-size="9.5">flatMap</text>
+    <line x1="120" y1="152" x2="900" y2="152" stroke="#3a4552"/>
+    <circle cx="230" cy="152" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="230" y="156" class="svg-t" font-size="9" text-anchor="middle">a1</text>
+    <circle cx="310" cy="152" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="310" y="156" class="svg-t" font-size="9" text-anchor="middle">a2</text>
+    <circle cx="380" cy="152" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="380" y="156" class="svg-t" font-size="9" text-anchor="middle">b1</text>
+    <circle cx="430" cy="152" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="430" y="156" class="svg-t" font-size="9" text-anchor="middle">a3</text>
+    <circle cx="480" cy="152" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="480" y="156" class="svg-t" font-size="9" text-anchor="middle">b2</text>
+    <text x="530" y="156" class="svg-m" font-size="10.5">interleaved — order NOT preserved, inners run concurrently</text>
+
+    <text x="0" y="194" class="svg-m" font-size="11">flatMapConcat</text>
+    <text x="0" y="208" class="svg-m" font-size="9.5">concatMap</text>
+    <line x1="120" y1="192" x2="900" y2="192" stroke="#3a4552"/>
+    <circle cx="230" cy="192" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="230" y="196" class="svg-t" font-size="9" text-anchor="middle">a1</text>
+    <circle cx="310" cy="192" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="310" y="196" class="svg-t" font-size="9" text-anchor="middle">a2</text>
+    <circle cx="430" cy="192" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="430" y="196" class="svg-t" font-size="9" text-anchor="middle">a3</text>
+    <circle cx="510" cy="192" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="510" y="196" class="svg-t" font-size="9" text-anchor="middle">b1</text>
+    <circle cx="560" cy="192" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="560" y="196" class="svg-t" font-size="9" text-anchor="middle">b2</text>
+    <text x="610" y="196" class="svg-m" font-size="10.5">B waits for A to finish — order preserved, no concurrency</text>
+
+    <text x="0" y="234" class="svg-m" font-size="11">flatMapLatest</text>
+    <text x="0" y="248" class="svg-m" font-size="9.5">switchMap</text>
+    <line x1="120" y1="232" x2="900" y2="232" stroke="#3a4552"/>
+    <circle cx="230" cy="232" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="230" y="236" class="svg-t" font-size="9" text-anchor="middle">a1</text>
+    <circle cx="310" cy="232" r="10" fill="#a97bff22" stroke="#a97bff"/><text x="310" y="236" class="svg-t" font-size="9" text-anchor="middle">a2</text>
+    <circle cx="430" cy="232" r="10" fill="none" stroke="#e06c75" stroke-dasharray="3 2"/><text x="430" y="236" class="svg-t" font-size="9" text-anchor="middle" fill="#e06c75">✕</text>
+    <circle cx="380" cy="232" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="380" y="236" class="svg-t" font-size="9" text-anchor="middle">b1</text>
+    <circle cx="480" cy="232" r="10" fill="#4e9cdb22" stroke="#4e9cdb"/><text x="480" y="236" class="svg-t" font-size="9" text-anchor="middle">b2</text>
+    <text x="530" y="236" class="svg-m" font-size="10.5">B's arrival CANCELS A's inner — a3 never emitted (search-as-you-type)</text>
+  </svg>
+  <figcaption>fig 2a — the same source, three flattening strategies. Picking the wrong one is the classic reactive bug.</figcaption>
+  </figure>
+
+  <figure>
+  <svg viewBox="0 0 980 210" role="img" aria-label="Marble diagram of slow-consumer strategies: buffer, conflate, debounce, sample">
+    <text x="0" y="16" class="svg-t" font-size="12.5">The consumer is slower than the producer. Four different answers:</text>
+
+    <text x="0" y="48" class="svg-m" font-size="11">source</text>
+    <line x1="120" y1="44" x2="900" y2="44" stroke="#3a4552"/>
+    <circle cx="160" cy="44" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="160" y="48" class="svg-t" font-size="9" text-anchor="middle">1</text>
+    <circle cx="215" cy="44" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="215" y="48" class="svg-t" font-size="9" text-anchor="middle">2</text>
+    <circle cx="270" cy="44" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="270" y="48" class="svg-t" font-size="9" text-anchor="middle">3</text>
+    <circle cx="430" cy="44" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="430" y="48" class="svg-t" font-size="9" text-anchor="middle">4</text>
+    <circle cx="485" cy="44" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="485" y="48" class="svg-t" font-size="9" text-anchor="middle">5</text>
+    <circle cx="650" cy="44" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="650" y="48" class="svg-t" font-size="9" text-anchor="middle">6</text>
+
+    <text x="0" y="86" class="svg-m" font-size="11">buffer(n)</text>
+    <line x1="120" y1="82" x2="900" y2="82" stroke="#3a4552"/>
+    <circle cx="200" cy="82" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="200" y="86" class="svg-t" font-size="9" text-anchor="middle">1</text>
+    <circle cx="290" cy="82" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="290" y="86" class="svg-t" font-size="9" text-anchor="middle">2</text>
+    <circle cx="380" cy="82" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="380" y="86" class="svg-t" font-size="9" text-anchor="middle">3</text>
+    <circle cx="470" cy="82" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="470" y="86" class="svg-t" font-size="9" text-anchor="middle">4</text>
+    <circle cx="560" cy="82" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="560" y="86" class="svg-t" font-size="9" text-anchor="middle">5</text>
+    <text x="610" y="86" class="svg-m" font-size="10.5">keep EVERYTHING, deliver late</text>
+
+    <text x="0" y="124" class="svg-m" font-size="11">conflate()</text>
+    <line x1="120" y1="120" x2="900" y2="120" stroke="#3a4552"/>
+    <circle cx="200" cy="120" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="200" y="124" class="svg-t" font-size="9" text-anchor="middle">1</text>
+    <circle cx="330" cy="120" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="330" y="124" class="svg-t" font-size="9" text-anchor="middle">3</text>
+    <circle cx="545" cy="120" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="545" y="124" class="svg-t" font-size="9" text-anchor="middle">5</text>
+    <circle cx="700" cy="120" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="700" y="124" class="svg-t" font-size="9" text-anchor="middle">6</text>
+    <text x="750" y="124" class="svg-m" font-size="10.5">skip stale, keep LATEST</text>
+
+    <text x="0" y="162" class="svg-m" font-size="11">debounce(t)</text>
+    <line x1="120" y1="158" x2="900" y2="158" stroke="#3a4552"/>
+    <circle cx="330" cy="158" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="330" y="162" class="svg-t" font-size="9" text-anchor="middle">3</text>
+    <circle cx="545" cy="158" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="545" y="162" class="svg-t" font-size="9" text-anchor="middle">5</text>
+    <circle cx="710" cy="158" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="710" y="162" class="svg-t" font-size="9" text-anchor="middle">6</text>
+    <text x="760" y="162" class="svg-m" font-size="10.5">emit only after SILENCE</text>
+
+    <text x="0" y="200" class="svg-m" font-size="11">sample(t)</text>
+    <line x1="120" y1="196" x2="900" y2="196" stroke="#3a4552"/>
+    <line x1="300" y1="186" x2="300" y2="206" stroke="#e0a458" stroke-dasharray="2 2"/>
+    <line x1="500" y1="186" x2="500" y2="206" stroke="#e0a458" stroke-dasharray="2 2"/>
+    <line x1="700" y1="186" x2="700" y2="206" stroke="#e0a458" stroke-dasharray="2 2"/>
+    <circle cx="300" cy="196" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="300" y="200" class="svg-t" font-size="9" text-anchor="middle">3</text>
+    <circle cx="500" cy="196" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="500" y="200" class="svg-t" font-size="9" text-anchor="middle">5</text>
+    <circle cx="700" cy="196" r="10" fill="#46c28e22" stroke="#46c28e"/><text x="700" y="200" class="svg-t" font-size="9" text-anchor="middle">6</text>
+    <text x="750" y="200" class="svg-m" font-size="10.5">latest, on a fixed CLOCK</text>
+  </svg>
+  <figcaption>fig 2b — <code>debounce</code> waits for the typing to stop; <code>sample</code> ticks on a timer regardless. They are not interchangeable.</figcaption>
+  </figure>
+
+  <p class="lede">The full mapping, with what each operator actually does:</p>
   <table>
-    <tr><th class="kcol">Kotlin Flow</th><th class="jcol">Reactor Flux/Mono</th><th>CompletableFuture (single value only)</th></tr>
-    <tr><td class="kcol"><code>map / filter / take</code></td><td class="jcol"><code>map / filter / take</code></td><td><code>thenApply</code> / — / —</td></tr>
-    <tr><td class="kcol"><code>flatMapMerge</code></td><td class="jcol"><code>flatMap</code></td><td><code>thenCompose</code></td></tr>
-    <tr><td class="kcol"><code>flatMapConcat</code></td><td class="jcol"><code>concatMap</code></td><td class="dim">n/a</td></tr>
-    <tr><td class="kcol"><code>flatMapLatest</code></td><td class="jcol"><code>switchMap</code></td><td class="dim">n/a</td></tr>
-    <tr><td class="kcol"><code>combine</code> / <code>zip</code></td><td class="jcol"><code>combineLatest</code> / <code>zip</code></td><td><code>thenCombine</code> (pairwise)</td></tr>
-    <tr><td class="kcol"><code>buffer(n)</code> / <code>conflate()</code></td><td class="jcol"><code>onBackpressureBuffer(n)</code> / <code>onBackpressureLatest</code></td><td class="dim">n/a</td></tr>
-    <tr><td class="kcol"><code>debounce / sample</code></td><td class="jcol"><code>sampleTimeout / sample</code></td><td class="dim">n/a</td></tr>
-    <tr><td class="kcol"><code>onEach</code> / <code>onCompletion</code></td><td class="jcol"><code>doOnNext</code> / <code>doFinally</code></td><td><code>whenComplete</code></td></tr>
-    <tr><td class="kcol"><code>catch { }</code> / <code>retry(n)</code></td><td class="jcol"><code>onErrorResume</code> / <code>retry(n)</code>, <code>retryWhen(Retry.backoff)</code></td><td><code>exceptionally</code></td></tr>
-    <tr><td class="kcol"><code>flowOn(ctx)</code> <span class="dim">(affects upstream)</span></td><td class="jcol"><code>subscribeOn</code> <span class="dim">(source)</span> + <code>publishOn</code> <span class="dim">(downstream)</span></td><td><code>*Async(fn, executor)</code> variants</td></tr>
-    <tr><td class="kcol"><code>first()</code> / <code>single()</code> / <code>toList()</code></td><td class="jcol"><code>next()</code> / <code>single()</code> / <code>collectList()</code> <span class="dim">(→ Mono)</span></td><td><code>join()/get()</code></td></tr>
+    <tr><th class="kcol">Kotlin Flow</th><th class="jcol">Reactor</th><th>What it does</th></tr>
+    <tr><td class="kcol"><code>map { }</code> / <code>filter { }</code></td><td class="jcol"><code>map</code> / <code>filter</code></td><td>Transform each element / drop the ones failing a predicate. 1-to-1 and 1-to-0.</td></tr>
+    <tr><td class="kcol"><code>flatMapMerge</code></td><td class="jcol"><code>flatMap</code></td><td>Each element opens an inner stream; run them <b>concurrently</b> and interleave the results. Fastest, order not preserved. <em>Use for: fan-out calls per element.</em></td></tr>
+    <tr><td class="kcol"><code>flatMapConcat</code></td><td class="jcol"><code>concatMap</code></td><td>Same, but each inner stream must <b>finish before the next starts</b>. Order preserved, no concurrency. <em>Use when order matters.</em></td></tr>
+    <tr><td class="kcol"><code>flatMapLatest</code></td><td class="jcol"><code>switchMap</code></td><td><b>Cancels</b> the in-flight inner stream when a new element arrives. <em>Use for: search-as-you-type, "only the newest request counts".</em></td></tr>
+    <tr><td class="kcol"><code>zip</code></td><td class="jcol"><code>zip</code></td><td>Pair up the <b>1st with the 1st, 2nd with the 2nd</b>. Waits for both sides; a fast stream is throttled by a slow one.</td></tr>
+    <tr><td class="kcol"><code>combine</code></td><td class="jcol"><code>combineLatest</code></td><td>Re-emit whenever <b>either</b> side changes, using the latest of the other. <em>Use for: live dashboards ("price × qty").</em></td></tr>
+    <tr><td class="kcol"><code>buffer(n)</code></td><td class="jcol"><code>onBackpressureBuffer(n)</code></td><td>Let producer and consumer run concurrently with n slots between them. Keeps everything; full buffer ⇒ producer suspends.</td></tr>
+    <tr><td class="kcol"><code>conflate()</code></td><td class="jcol"><code>onBackpressureLatest()</code></td><td>Drop intermediate values; the consumer always gets the <b>newest</b>. <em>Use for: prices, positions, any "current state".</em></td></tr>
+    <tr><td class="kcol"><code>debounce(t)</code></td><td class="jcol"><code>debounce</code> / <code>sampleTimeout</code></td><td>Emit only after <b>t of silence</b>. Bursts collapse to their last element.</td></tr>
+    <tr><td class="kcol"><code>sample(t)</code></td><td class="jcol"><code>sample(t)</code></td><td>Emit the latest value <b>every t</b>, on a clock. Steady output rate regardless of input rate.</td></tr>
+    <tr><td class="kcol"><code>onEach</code> / <code>onCompletion</code></td><td class="jcol"><code>doOnNext</code> / <code>doFinally</code></td><td>Side effects (logging, metrics) without changing the stream.</td></tr>
+    <tr><td class="kcol"><code>catch { }</code> / <code>retry(n)</code></td><td class="jcol"><code>onErrorResume</code> / <code>retryWhen(Retry.backoff(..))</code></td><td>Substitute a fallback stream on failure / re-subscribe from scratch, up to n times.</td></tr>
+    <tr><td class="kcol"><code>flowOn(ctx)</code> <span class="dim">— affects everything UPSTREAM of it</span></td><td class="jcol"><code>subscribeOn</code> <span class="dim">(the source)</span> + <code>publishOn</code> <span class="dim">(everything downstream)</span></td><td>Choose which threads run which part of the chain. Kotlin has one operator with one direction; Reactor has two with opposite effects — a frequent source of confusion.</td></tr>
+    <tr><td class="kcol"><code>first()</code> / <code>toList()</code> / <code>collect { }</code></td><td class="jcol"><code>next()</code> / <code>collectList()</code> / <code>subscribe()</code></td><td>Terminal operators — these are what actually start the stream.</td></tr>
   </table>
 </section>
 
@@ -746,101 +977,410 @@ ticks(<span class="str">"AAPL"</span>).<span class="fn">subscribe</span>(this::p
 <!-- ============ 10 WEB ============ -->
 <section id="web">
   <h2><span class="num">§10</span>WebMVC vs WebFlux — the post-Loom decision</h2>
-  <p class="lede">Pre-Loom, WebFlux's core sell was escaping the thread-per-request ceiling. <b>Virtual threads erase that argument.</b> What remains for WebFlux is <em>semantics</em>: Reactive-Streams backpressure as a first-class protocol, streaming operator composition, and ecosystems that are reactive all the way down. If you don't need those, WebMVC + VT is the simpler system — real stack traces, working ThreadLocals/MDC, plain JDBC, thread-per-request debugging.</p>
+  <p class="lede">Before Loom, WebFlux's core selling point was escaping the thread-per-request ceiling. <b>Virtual threads erase that argument.</b> What remains is <em>semantics</em>: Reactive-Streams backpressure as a real protocol, streaming operator composition, and an ecosystem that is non-blocking all the way down. If you don't need those, WebMVC + VT is the simpler system — true stack traces, working ThreadLocals/MDC, plain JDBC, ordinary debugging.</p>
 
   <figure>
-  <svg viewBox="0 0 980 430" role="img" aria-label="Decision flowchart for choosing WebMVC or WebFlux">
+  <svg viewBox="0 0 980 400" role="img" aria-label="Decision flowchart for choosing WebMVC or WebFlux">
     <defs><marker id="farr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5c6773"/></marker></defs>
-    <!-- Q1 -->
-    <polygon points="490,14 700,52 490,90 280,52" fill="#1b232c" stroke="#e0a458"/>
-    <text x="490" y="46" class="svg-t" font-size="12" text-anchor="middle">Need end-to-end backpressure across the network</text>
-    <text x="490" y="64" class="svg-t" font-size="12" text-anchor="middle">(RSocket, reactive Kafka, flow-controlled streaming)?</text>
-    <path d="M 700 52 L 800 52" stroke="#5c6773" marker-end="url(#farr)"/><text x="740" y="44" class="svg-m" font-size="11">yes</text>
-    <path d="M 490 90 L 490 118" stroke="#5c6773" marker-end="url(#farr)"/><text x="502" y="110" class="svg-m" font-size="11">no</text>
-    <!-- Q2 -->
-    <polygon points="490,122 700,160 490,198 280,160" fill="#1b232c" stroke="#e0a458"/>
-    <text x="490" y="154" class="svg-t" font-size="12" text-anchor="middle">Stack already reactive end-to-end?</text>
-    <text x="490" y="172" class="svg-t" font-size="12" text-anchor="middle">(R2DBC, reactive Mongo/Redis, Spring Cloud Gateway)</text>
-    <path d="M 700 160 L 800 160" stroke="#5c6773" marker-end="url(#farr)"/><text x="740" y="152" class="svg-m" font-size="11">yes</text>
-    <path d="M 490 198 L 490 226" stroke="#5c6773" marker-end="url(#farr)"/><text x="502" y="218" class="svg-m" font-size="11">no</text>
-    <!-- Q3 -->
-    <polygon points="490,230 700,268 490,306 280,268" fill="#1b232c" stroke="#e0a458"/>
-    <text x="490" y="262" class="svg-t" font-size="12" text-anchor="middle">Extreme fan-out of long-lived streams (100k+ SSE/WS)</text>
-    <text x="490" y="280" class="svg-t" font-size="12" text-anchor="middle">with per-subscriber flow control / windowing / sampling?</text>
-    <path d="M 700 268 L 800 268" stroke="#5c6773" marker-end="url(#farr)"/><text x="740" y="260" class="svg-m" font-size="11">yes</text>
-    <path d="M 490 306 L 490 340" stroke="#5c6773" marker-end="url(#farr)"/><text x="502" y="330" class="svg-m" font-size="11">no</text>
-    <!-- WebFlux box -->
-    <rect x="806" y="120" width="160" height="88" rx="10" fill="#4e9cdb22" stroke="#4e9cdb"/>
-    <text x="886" y="152" class="svg-t" font-size="14" text-anchor="middle" fill="#4e9cdb">WebFlux</text>
-    <text x="886" y="172" class="svg-m" font-size="10.5" text-anchor="middle">Reactor or coroutines</text>
-    <text x="886" y="188" class="svg-m" font-size="10.5" text-anchor="middle">(suspend + Flow) on top</text>
-    <path d="M 880 52 L 886 118" stroke="#5c6773" marker-end="url(#farr)"/>
-    <path d="M 880 268 L 886 210" stroke="#5c6773" marker-end="url(#farr)"/>
-    <!-- MVC box -->
-    <rect x="330" y="344" width="320" height="72" rx="10" fill="#46c28e1f" stroke="#46c28e"/>
-    <text x="490" y="372" class="svg-t" font-size="14" text-anchor="middle" fill="#46c28e">WebMVC + virtual threads</text>
-    <text x="490" y="392" class="svg-m" font-size="10.5" text-anchor="middle">spring.threads.virtual.enabled=true · Boot 3.2+ · JDK 21+</text>
-    <text x="490" y="407" class="svg-m" font-size="10.5" text-anchor="middle">plain JDBC/JPA, RestClient, MDC, sane debugging</text>
-    <text x="20" y="380" class="svg-m" font-size="11.5">~90% of services land here.</text>
-    <text x="20" y="398" class="svg-m" font-size="11.5">Coroutines still welcome:</text>
-    <text x="20" y="414" class="svg-m" font-size="11.5">MVC supports suspend fns too.</text>
+
+    <rect x="120" y="12" width="600" height="52" rx="8" fill="#1b232c" stroke="#e0a458"/>
+    <text x="140" y="34" class="svg-t" font-size="12.5">1 · Does backpressure need to cross the network?</text>
+    <text x="140" y="52" class="svg-m" font-size="11">RSocket · reactive Kafka · a client that must throttle the server</text>
+    <path d="M 720 38 L 800 38" stroke="#5c6773" marker-end="url(#farr)"/>
+    <text x="748" y="30" class="svg-m" font-size="11">yes</text>
+    <path d="M 420 64 L 420 94" stroke="#5c6773" marker-end="url(#farr)"/>
+    <text x="432" y="84" class="svg-m" font-size="11">no</text>
+
+    <rect x="120" y="98" width="600" height="52" rx="8" fill="#1b232c" stroke="#e0a458"/>
+    <text x="140" y="120" class="svg-t" font-size="12.5">2 · Is the stack already reactive end-to-end?</text>
+    <text x="140" y="138" class="svg-m" font-size="11">R2DBC · reactive Mongo/Redis · Spring Cloud Gateway</text>
+    <path d="M 720 124 L 800 124" stroke="#5c6773" marker-end="url(#farr)"/>
+    <text x="748" y="116" class="svg-m" font-size="11">yes</text>
+    <path d="M 420 150 L 420 180" stroke="#5c6773" marker-end="url(#farr)"/>
+    <text x="432" y="170" class="svg-m" font-size="11">no</text>
+
+    <rect x="120" y="184" width="600" height="52" rx="8" fill="#1b232c" stroke="#e0a458"/>
+    <text x="140" y="206" class="svg-t" font-size="12.5">3 · 100k+ live streams needing per-subscriber flow control?</text>
+    <text x="140" y="224" class="svg-m" font-size="11">windowing · sampling · conflation, per connection</text>
+    <path d="M 720 210 L 800 210" stroke="#5c6773" marker-end="url(#farr)"/>
+    <text x="748" y="202" class="svg-m" font-size="11">yes</text>
+    <path d="M 420 236 L 420 268" stroke="#5c6773" marker-end="url(#farr)"/>
+    <text x="432" y="258" class="svg-m" font-size="11">no</text>
+
+    <rect x="806" y="98" width="164" height="52" rx="8" fill="#4e9cdb22" stroke="#4e9cdb"/>
+    <text x="888" y="121" class="svg-t" font-size="13.5" text-anchor="middle" fill="#4e9cdb">WebFlux</text>
+    <text x="888" y="139" class="svg-m" font-size="10" text-anchor="middle">Reactor, or coroutines</text>
+    <path d="M 858 64 L 872 96" stroke="#5c6773" marker-end="url(#farr)"/>
+    <path d="M 858 210 L 872 152" stroke="#5c6773" marker-end="url(#farr)"/>
+
+    <rect x="120" y="272" width="600" height="66" rx="8" fill="#46c28e1f" stroke="#46c28e"/>
+    <text x="420" y="296" class="svg-t" font-size="13.5" text-anchor="middle" fill="#46c28e">WebMVC + virtual threads</text>
+    <text x="420" y="316" class="svg-m" font-size="10.5" text-anchor="middle">spring.threads.virtual.enabled=true · Boot 3.2+ · JDK 21+</text>
+    <text x="420" y="332" class="svg-m" font-size="10.5" text-anchor="middle">plain JDBC/JPA · RestClient · MDC · thread-per-request debugging</text>
+
+    <text x="120" y="366" class="svg-m" font-size="11.5">Roughly 90% of services land in the green box. Coroutines are still welcome there — WebMVC accepts suspend functions too.</text>
+    <text x="120" y="386" class="svg-m" font-size="11.5">Note every "yes" is about SEMANTICS, not scale. Thread scarcity is no longer a reason to choose WebFlux.</text>
   </svg>
-  <figcaption>fig 3 — decide on semantics, not scalability. Thread scarcity is no longer a reason to pick WebFlux.</figcaption>
+  <figcaption>fig 3 — three questions. If all three are "no", virtual threads give you the scalability without the reactive tax.</figcaption>
   </figure>
 
   <table>
     <tr><th>Scenario</th><th class="jcol">Verdict</th><th>Why</th></tr>
-    <tr><td>CRUD / REST over JDBC or JPA (the median service)</td><td class="jcol" style="color:var(--vt)">WebMVC + VT</td><td>JDBC is blocking; on VTs that's fine. R2DBC buys complexity, not throughput, once threads are free.</td></tr>
-    <tr><td>High-fan-in API aggregator (call 10 services per request)</td><td class="jcol" style="color:var(--vt)">WebMVC + VT (+ coroutines or STS for the fan-out)</td><td>Concurrency-per-request is structured-concurrency's job, not the web stack's.</td></tr>
-    <tr><td>SSE / WebSocket push to moderate subscriber counts</td><td class="jcol" style="color:var(--vt)">WebMVC + VT suffices</td><td>MVC supports SSE (<code>SseEmitter</code>, or returning <code>Flow</code>/<code>Flux</code> with Spring 6). One parked VT per connection is cheap.</td></tr>
-    <tr><td>Market-data style streaming with per-subscriber flow control, windowing, conflation at 100k+ connections</td><td class="jcol" style="color:var(--java)">WebFlux</td><td>You need the Reactive-Streams <code>request(n)</code> protocol and operator algebra (window, sample, onBackpressureLatest) end to end.</td></tr>
-    <tr><td>API gateway / proxy</td><td class="jcol" style="color:var(--java)">WebFlux</td><td>Spring Cloud Gateway is built on it; byte-level streaming without buffering whole bodies.</td></tr>
-    <tr><td>RSocket, reactive Kafka (reactor-kafka), R2DBC estate</td><td class="jcol" style="color:var(--java)">WebFlux</td><td>Backpressure must cross the process boundary; suspension can't — it's in-process only.</td></tr>
-    <tr><td>Team writes Kotlin, wants streaming, hates Reactor's operator soup</td><td class="jcol" style="color:var(--kotlin)">Either stack + coroutines</td><td><code>suspend</code> controllers &amp; <code>Flow</code> returns work on WebFlux (since 5.2) and WebMVC (since Framework 6). WebFlux + coroutines = reactive runtime, imperative code.</td></tr>
+    <tr><td>CRUD / REST over JDBC or JPA (the median service)</td><td class="jcol" style="color:var(--vt)">WebMVC + VT</td><td>JDBC blocks; on virtual threads that's fine. R2DBC buys complexity, not throughput, once threads are cheap.</td></tr>
+    <tr><td>API aggregator — 10 downstream calls per request</td><td class="jcol" style="color:var(--vt)">WebMVC + VT, fan out with StructuredTaskScope</td><td>Per-request concurrency is structured concurrency's job, not the web stack's.</td></tr>
+    <tr><td>SSE / WebSocket push, moderate subscriber counts</td><td class="jcol" style="color:var(--vt)">WebMVC + VT suffices</td><td>MVC supports SSE (<code>SseEmitter</code>, or return a <code>Flux</code>/<code>Flow</code> on Spring 6). One parked VT per connection is cheap.</td></tr>
+    <tr><td>Market-data streaming: per-subscriber flow control, windowing, conflation, 100k+ connections</td><td class="jcol" style="color:var(--java)">WebFlux</td><td>You need the <code>request(n)</code> protocol and the operator algebra end to end.</td></tr>
+    <tr><td>API gateway / proxy</td><td class="jcol" style="color:var(--java)">WebFlux</td><td>Spring Cloud Gateway is built on it; streams bytes without buffering whole bodies.</td></tr>
+    <tr><td>RSocket, reactor-kafka, an existing R2DBC estate</td><td class="jcol" style="color:var(--java)">WebFlux</td><td>Backpressure must cross a process boundary. Suspension can't — it's in-process only.</td></tr>
+    <tr><td>Kotlin team that wants streaming without Reactor's operator soup</td><td class="jcol" style="color:var(--kotlin)">Either stack + coroutines</td><td><code>suspend</code> controllers and <code>Flow</code> return types work on WebFlux (since 5.2) and WebMVC (since Framework 6).</td></tr>
   </table>
+
+  <h2 style="font-size:19px;margin-top:34px"><span class="num">§10.1</span>The same endpoint, four ways</h2>
+  <p class="lede">A dashboard endpoint that fans out to two downstream services and joins the results — written for each stack, in both languages.</p>
 
   <div class="duo">
     <div class="card v">
-      <h3>WEBMVC + VT · Boot 3.2+</h3>
+      <h3>JAVA · WebMVC + virtual threads</h3>
 <pre><span class="c"># application.yaml</span>
-spring.threads.virtual.enabled: <span class="kw">true</span>   <span class="c"># Tomcat + @Async + listeners on VTs</span></pre>
+spring.threads.virtual.enabled: <span class="kw">true</span>   <span class="c"># Tomcat, @Async, listeners → VTs</span></pre>
 <pre><span class="an">@RestController</span>
-<span class="kw">class</span> <span class="ty">DashCtl</span>(<span class="kw">val</span> svc: <span class="ty">DashService</span>) {
+<span class="kw">class</span> <span class="ty">DashController</span> {
+    <span class="kw">private final</span> <span class="ty">DashService</span> svc;
+
     <span class="an">@GetMapping</span>(<span class="str">"/dash/{id}"</span>)
-    <span class="kw">suspend fun</span> <span class="fn">dash</span>(<span class="an">@PathVariable</span> id: <span class="ty">String</span>) = svc.<span class="fn">dashboard</span>(id)
-    <span class="c">// or plain blocking fun — both fine on MVC+VT</span>
+    <span class="ty">Dashboard</span> <span class="fn">dash</span>(<span class="an">@PathVariable</span> <span class="ty">String</span> id) <span class="kw">throws</span> <span class="ty">Exception</span> {
+        <span class="c">// Blocking signature. Blocking body. Ordinary try/catch.</span>
+        <span class="c">// The request runs on a virtual thread, so the two calls below</span>
+        <span class="c">// park without holding an OS thread.</span>
+        <span class="kw">try</span> (<span class="kw">var</span> scope = StructuredTaskScope.<span class="fn">open</span>()) {
+            <span class="kw">var</span> pos = scope.<span class="fn">fork</span>(() -&gt; svc.<span class="fn">positions</span>(id));
+            <span class="kw">var</span> pnl = scope.<span class="fn">fork</span>(() -&gt; svc.<span class="fn">pnl</span>(id));
+            scope.<span class="fn">join</span>();     <span class="c">// either fails ⇒ the other is cancelled</span>
+            <span class="kw">return new</span> <span class="ty">Dashboard</span>(pos.<span class="fn">get</span>(), pnl.<span class="fn">get</span>());
+        }
+    }
 }</pre>
-      <div class="note">Watch: <code>synchronized</code> around I/O <b>pinned</b> carriers before JDK 24 (JEP 491 fixed it) — on 21, prefer <code>ReentrantLock</code>. Pool-sized resources (Hikari) still cap effective concurrency; consider a <code>Semaphore</code> bulkhead in front of scarce downstreams.</div>
+      <div class="note">Plain JDBC inside <code>svc</code>. MDC works. The stack trace names your methods. This is the default choice.</div>
     </div>
     <div class="spine"><span class="eq part">vs</span></div>
     <div class="card j">
-      <h3>WEBFLUX · when semantics demand it</h3>
+      <h3>JAVA · WebFlux + Reactor</h3>
+<pre><span class="an">@RestController</span>
+<span class="kw">class</span> <span class="ty">DashController</span> {
+    <span class="kw">private final</span> <span class="ty">DashService</span> svc;   <span class="c">// must return Mono/Flux all the way down</span>
+
+    <span class="an">@GetMapping</span>(<span class="str">"/dash/{id}"</span>)
+    <span class="ty">Mono</span>&lt;<span class="ty">Dashboard</span>&gt; <span class="fn">dash</span>(<span class="an">@PathVariable</span> <span class="ty">String</span> id) {
+        <span class="c">// The method RETURNS a recipe; nothing has run yet. Whoever</span>
+        <span class="c">// subscribes (the framework) starts it on an event-loop thread.</span>
+        <span class="kw">return</span> Mono.<span class="fn">zip</span>(                  <span class="c">// run both, wait for both</span>
+                svc.<span class="fn">positions</span>(id),        <span class="c">// Mono&lt;Positions&gt;</span>
+                svc.<span class="fn">pnl</span>(id))               <span class="c">// Mono&lt;Pnl&gt;</span>
+            .<span class="fn">map</span>(t -&gt; <span class="kw">new</span> <span class="ty">Dashboard</span>(t.<span class="fn">getT1</span>(), t.<span class="fn">getT2</span>()))
+            .<span class="fn">timeout</span>(Duration.<span class="fn">ofSeconds</span>(<span class="str">2</span>))
+            .<span class="fn">onErrorResume</span>(<span class="ty">TimeoutException</span>.<span class="kw">class</span>,
+                           e -&gt; Mono.<span class="fn">just</span>(<span class="ty">Dashboard</span>.<span class="fn">degraded</span>()));
+    }
+}
+<span class="c">// SSE streaming endpoint — this is what WebFlux is actually for:</span>
+<span class="an">@GetMapping</span>(value = <span class="str">"/ticks/{sym}"</span>, produces = TEXT_EVENT_STREAM_VALUE)
+<span class="ty">Flux</span>&lt;<span class="ty">Tick</span>&gt; <span class="fn">stream</span>(<span class="an">@PathVariable</span> <span class="ty">String</span> sym) {
+    <span class="kw">return</span> marketData.<span class="fn">ticks</span>(sym)
+        .<span class="fn">onBackpressureLatest</span>()          <span class="c">// slow client? keep only the newest</span>
+        .<span class="fn">sample</span>(Duration.<span class="fn">ofMillis</span>(<span class="str">250</span>));  <span class="c">// throttle, per subscriber</span>
+}</pre>
+      <div class="note"><b>Never block an event-loop thread</b> — Netty runs roughly #cores of them, and one blocking call stalls thousands of requests. Put BlockHound in your test suite. For ThreadLocal/MDC/tracing across suspension points, <b>Spring Boot 4 / Framework 7</b> add automatic coroutine context propagation: set <code>spring.reactor.context-propagation=auto</code> (with <code>io.micrometer:context-propagation</code>, bundled in Boot 4) and traceIds flow into suspend functions out of the box.</div>
+    </div>
+  </div>
+
+  <div class="duo" style="margin-top:14px">
+    <div class="card k">
+      <h3>KOTLIN · WebMVC + VT (or WebFlux — the code is identical)</h3>
+<pre><span class="an">@RestController</span>
+<span class="kw">class</span> <span class="ty">DashController</span>(<span class="kw">val</span> svc: <span class="ty">DashService</span>) {
+
+    <span class="an">@GetMapping</span>(<span class="str">"/dash/{id}"</span>)
+    <span class="kw">suspend fun</span> <span class="fn">dash</span>(<span class="an">@PathVariable</span> id: <span class="ty">String</span>): <span class="ty">Dashboard</span> =
+        <span class="fn">coroutineScope</span> {
+            <span class="kw">val</span> pos = <span class="fn">async</span> { svc.<span class="fn">positions</span>(id) }
+            <span class="kw">val</span> pnl = <span class="fn">async</span> { svc.<span class="fn">pnl</span>(id) }
+            <span class="ty">Dashboard</span>(pos.<span class="fn">await</span>(), pnl.<span class="fn">await</span>())
+        }   <span class="c">// either throws ⇒ the sibling is cancelled, exception propagates</span>
+}</pre>
+      <div class="note">Spring runs the coroutine for you and manages the scope. The exact same source compiles on <b>both</b> stacks — only the runtime underneath differs.</div>
+    </div>
+    <div class="spine"><span class="eq approx">≈</span></div>
+    <div class="card k">
+      <h3>KOTLIN · WebFlux streaming (Flow instead of Flux)</h3>
 <pre><span class="an">@GetMapping</span>(<span class="str">"/ticks/{sym}"</span>, produces = [TEXT_EVENT_STREAM_VALUE])
 <span class="kw">fun</span> <span class="fn">stream</span>(<span class="an">@PathVariable</span> sym: <span class="ty">String</span>): <span class="ty">Flow</span>&lt;<span class="ty">Tick</span>&gt; =
     marketData.<span class="fn">ticks</span>(sym)
-        .<span class="fn">conflate</span>()                       <span class="c">// slow client? keep latest</span>
-        .<span class="fn">sample</span>(<span class="str">250</span>.milliseconds)         <span class="c">// throttle per subscriber</span></pre>
-      <div class="note">Rules of the runtime: <b>never block an event-loop thread</b> (Netty has ~#cores of them) — BlockHound in CI catches it; every blocking hop must be <code>publishOn(boundedElastic())</code> or, better, genuinely non-blocking. ThreadLocal/MDC need context propagation (<code>spring.reactor.context-propagation=auto</code>, Micrometer context-propagation lib).</div>
+        .<span class="fn">conflate</span>()                    <span class="c">// == onBackpressureLatest()</span>
+        .<span class="fn">sample</span>(<span class="str">250</span>.milliseconds)      <span class="c">// == sample(ofMillis(250))</span>
+
+<span class="c">// Reactive runtime, imperative-looking code. This is the sweet spot</span>
+<span class="c">// when you genuinely need WebFlux but don't want the operator soup:</span>
+<span class="c">// use Flow at the edges, and awaitSingle()/asFlow() to bridge (see §9).</span></pre>
+      <div class="note">Returning a <code>Flow</code> from a WebFlux controller works out of the box — Spring adapts it to a <code>Publisher</code>.</div>
     </div>
   </div>
 </section>
 
 <!-- ============ 11 GOTCHAS ============ -->
+<section id="patterns">
+  <h2><span class="num">§11</span>Server pipeline patterns</h2>
+  <p class="lede">Six patterns for high-throughput request pipelines — the shapes behind streaming APIs and fan-out backends (as catalogued in Bowen Feng's <em>"Concurrency Patterns for Modern High Performance Kotlin Servers"</em>) — each with its Java translation. They compose: a real endpoint is typically a generator over a fan-in, with hedged calls, timeouts at two granularities, and backpressure at the edge.</p>
+
+  <table>
+    <tr><th>Pattern</th><th>Problem it solves</th><th class="kcol">Kotlin</th><th class="jcol">Java</th></tr>
+    <tr><td><b>Generator</b></td><td>Cut time-to-first-byte: emit results as they're ready, not when everything is done</td><td class="kcol">function returning <code>Flow</code></td><td class="jcol"><code>Flux</code> / SSE; MVC: <code>SseEmitter</code> on a VT</td></tr>
+    <tr><td><b>Fan-in</b></td><td>Run N independent calls in parallel, merge into one stream</td><td class="kcol">producers → one <code>Channel</code>; or <code>merge()</code> / <code>flatMapMerge</code></td><td class="jcol">VTs → one <code>BlockingQueue</code>; or <code>Flux.merge</code></td></tr>
+    <tr><td><b>Ordering</b></td><td>Concurrent results arrive out of order</td><td class="kcol">server-side: <code>awaitAll()</code> · client-side: sequence numbers</td><td class="jcol">ordered <code>fork</code> list + <code>join</code> · same seq-number scheme</td></tr>
+    <tr><td><b>Timeout control</b></td><td>A slow backend must not hang the request</td><td class="kcol"><code>withTimeout</code>, coarse and fine</td><td class="jcol">scope deadline (<code>StructuredTaskScope</code>) · <code>orTimeout</code> · Reactor <code>.timeout</code></td></tr>
+    <tr><td><b>Hedging</b></td><td>Tail latency: p99 dominated by one slow replica</td><td class="kcol">race two <code>async</code>, first wins, loser cancelled</td><td class="jcol"><code>Joiner.anySuccessfulResultOrThrow()</code> (JDK 26: <code>anySuccessfulOrThrow</code>) · <code>Mono.firstWithValue</code></td></tr>
+    <tr><td><b>Backpressure</b></td><td>A slow client must be able to slow the server</td><td class="kcol">built into <code>Flow</code>; <code>buffer(n)</code> to stay ahead</td><td class="jcol">Reactive-Streams <code>request(n)</code>; MVC+VT: the blocking socket write <em>is</em> the backpressure</td></tr>
+  </table>
+
+  <h2 style="font-size:19px;margin-top:30px"><span class="num">§11.1</span>Generator + fan-in — the streaming aggregator</h2>
+  <div class="callout good"><span class="tag ok">the goal</span>An endpoint calls three independent backends (or tools, or RPCs) and streams each result to the client <b>the moment it arrives</b>. Total latency ≈ max(backends), not sum(backends) — and the client's time-to-first-byte ≈ min(backends).</div>
+
+  <div class="duo">
+    <div class="card k">
+      <h3>KOTLIN · channelFlow (fan-in) returned as a Flow (generator)</h3>
+<pre><span class="c">// GENERATOR: the return type is a Flow — the framework streams it</span>
+<span class="c">// (SSE / chunked) instead of buffering a full response.</span>
+<span class="kw">fun</span> <span class="fn">answers</span>(q: <span class="ty">Query</span>): <span class="ty">Flow</span>&lt;<span class="ty">Part</span>&gt; = <span class="fn">channelFlow</span> {
+    <span class="c">// FAN-IN: three child coroutines send into ONE implicit channel.</span>
+    <span class="fn">launch</span> { <span class="fn">send</span>(<span class="fn">search</span>(q))  }        <span class="c">// each send() happens as soon as</span>
+    <span class="fn">launch</span> { <span class="fn">send</span>(<span class="fn">ratings</span>(q)) }        <span class="c">//   that backend responds —</span>
+    <span class="fn">launch</span> { <span class="fn">send</span>(<span class="fn">news</span>(q))    }        <span class="c">//   arrival order, not call order</span>
+}   <span class="c">// channelFlow closes when all three children complete (structured!)</span>
+
+<span class="c">// Same shape with operators, when the sources are already Flows:</span>
+<span class="kw">val</span> merged: <span class="ty">Flow</span>&lt;<span class="ty">Part</span>&gt; = <span class="fn">merge</span>(searchF, ratingsF, newsF)
+<span class="c">// flatMapMerge = fan-in over a DYNAMIC set of inner flows (§7.1);</span>
+<span class="c">// flatMapConcat = same, but strictly sequential emission.</span></pre>
+    </div>
+    <div class="spine"><span class="eq approx">≈</span></div>
+    <div class="stack">
+      <div class="card v">
+        <h3>JAVA · MVC + virtual threads</h3>
+<pre><span class="an">@GetMapping</span>(<span class="str">"/answers"</span>)
+<span class="ty">SseEmitter</span> <span class="fn">answers</span>(<span class="ty">Query</span> q) {
+    <span class="kw">var</span> sse  = <span class="kw">new</span> <span class="ty">SseEmitter</span>(<span class="str">30_000L</span>);
+    <span class="kw">var</span> exec = Executors.<span class="fn">newVirtualThreadPerTaskExecutor</span>();
+    <span class="kw">var</span> left = <span class="kw">new</span> <span class="ty">AtomicInteger</span>(<span class="str">3</span>);
+    <span class="kw">var</span> done = <span class="kw">new</span> <span class="ty">AtomicBoolean</span>(<span class="kw">false</span>);   <span class="c">// single-completion guard</span>
+
+    <span class="c">// MUST shut the executor down, or you leak one per request.</span>
+    <span class="c">// Can't use try-with-resources: close() blocks; return now.</span>
+    sse.<span class="fn">onCompletion</span>(exec::shutdownNow);   <span class="c">// fires on complete OR error</span>
+    sse.<span class="fn">onTimeout</span>(() -&gt; <span class="fn">finish</span>(sse, done, <span class="kw">null</span>));
+
+    <span class="kw">for</span> (<span class="ty">Supplier</span>&lt;<span class="ty">Part</span>&gt; call :
+            List.of(() -&gt; <span class="fn">search</span>(q), () -&gt; <span class="fn">ratings</span>(q), () -&gt; <span class="fn">news</span>(q))) {
+        exec.<span class="fn">submit</span>(() -&gt; {              <span class="c">// FAN-IN: 3 VTs, one emitter</span>
+            <span class="kw">try</span> {
+                sse.<span class="fn">send</span>(call.<span class="fn">get</span>());        <span class="c">// GENERATOR: flush per result</span>
+                <span class="kw">if</span> (left.<span class="fn">decrementAndGet</span>() == <span class="str">0</span>) <span class="fn">finish</span>(sse, done, <span class="kw">null</span>);
+            } <span class="kw">catch</span> (<span class="ty">Exception</span> e) {
+                <span class="fn">finish</span>(sse, done, e);    <span class="c">// end the stream on any failure</span>
+            }
+            <span class="kw">return null</span>;
+        });
+    }
+    <span class="kw">return</span> sse;
+}
+
+<span class="c">// Complete AT MOST ONCE. Two subtasks failing near-simultaneously</span>
+<span class="c">// would otherwise both call complete*/(), and the 2nd throws</span>
+<span class="c">// IllegalStateException ("already completed") silently inside a VT.</span>
+<span class="kw">private static void</span> <span class="fn">finish</span>(<span class="ty">SseEmitter</span> sse, <span class="ty">AtomicBoolean</span> done, <span class="ty">Exception</span> err) {
+    <span class="kw">if</span> (!done.<span class="fn">compareAndSet</span>(<span class="kw">false</span>, <span class="kw">true</span>)) <span class="kw">return</span>;   <span class="c">// someone already ended it</span>
+    <span class="kw">if</span> (err == <span class="kw">null</span>) sse.<span class="fn">complete</span>(); <span class="kw">else</span> sse.<span class="fn">completeWithError</span>(err);
+}</pre>
+        <div class="note">Three bugs this shape invites: <b>leaking the executor</b> (nothing closes it — hence <code>onCompletion</code>), <b>hanging the client</b> when a subtask throws and the countdown never reaches zero, and — subtlest — <b>double completion</b>: two near-simultaneous failures both calling <code>completeWithError</code>, the second throwing <code>IllegalStateException</code> unobserved inside a VT. The <code>AtomicBoolean</code> serialises it. Contrast <code>channelFlow</code>, where completion and cancellation are structural and none of the three is expressible.</div>
+      </div>
+      <div class="card j">
+        <h3>JAVA · WebFlux</h3>
+<pre><span class="an">@GetMapping</span>(value = <span class="str">"/answers"</span>, produces = TEXT_EVENT_STREAM_VALUE)
+<span class="ty">Flux</span>&lt;<span class="ty">Part</span>&gt; <span class="fn">answers</span>(<span class="ty">Query</span> q) {
+    <span class="kw">return</span> Flux.<span class="fn">merge</span>(          <span class="c">// FAN-IN, arrival order</span>
+        <span class="fn">search</span>(q), <span class="fn">ratings</span>(q), <span class="fn">news</span>(q));  <span class="c">// each a Mono&lt;Part&gt;</span>
+}   <span class="c">// the Flux return type IS the generator</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <h2 style="font-size:19px;margin-top:30px"><span class="num">§11.2</span>Ordering — when the merge must not shuffle</h2>
+  <div class="duo">
+    <div class="card k">
+      <h3>KOTLIN · server-side vs client-side ordering</h3>
+<pre><span class="c">// SERVER-SIDE: run concurrently, deliver in ORIGINAL order.</span>
+<span class="c">// awaitAll preserves list order regardless of completion order —</span>
+<span class="c">// simple, but the client waits for the slowest item before item 1.</span>
+<span class="kw">suspend fun</span> <span class="fn">enrichAll</span>(ids: <span class="ty">List</span>&lt;<span class="ty">Id</span>&gt;): <span class="ty">List</span>&lt;<span class="ty">Doc</span>&gt; = <span class="fn">coroutineScope</span> {
+    ids.<span class="fn">map</span> { <span class="fn">async</span> { <span class="fn">enrich</span>(it) } }.<span class="fn">awaitAll</span>()
+}
+
+<span class="c">// CLIENT-SIDE: stream in ARRIVAL order, tagged with a sequence</span>
+<span class="c">// number; the client reassembles. Best time-to-first-byte.</span>
+<span class="kw">data class</span> <span class="ty">Chunk</span>(<span class="kw">val</span> seq: <span class="ty">Int</span>, <span class="kw">val</span> doc: <span class="ty">Doc</span>)
+<span class="kw">fun</span> <span class="fn">enrichStream</span>(ids: <span class="ty">List</span>&lt;<span class="ty">Id</span>&gt;): <span class="ty">Flow</span>&lt;<span class="ty">Chunk</span>&gt; = <span class="fn">channelFlow</span> {
+    ids.<span class="fn">forEachIndexed</span> { i, id -&gt;
+        <span class="fn">launch</span> { <span class="fn">send</span>(<span class="ty">Chunk</span>(seq = i, doc = <span class="fn">enrich</span>(id))) }
+    }
+}</pre>
+    </div>
+    <div class="spine"><span class="eq approx">≈</span></div>
+    <div class="card v">
+      <h3>JAVA · the same two choices</h3>
+<pre><span class="c">// SERVER-SIDE: fork in order, get() in order. Completion order</span>
+<span class="c">// is irrelevant — the subtask LIST carries the sequence.</span>
+<span class="ty">List</span>&lt;<span class="ty">Doc</span>&gt; <span class="fn">enrichAll</span>(<span class="ty">List</span>&lt;<span class="ty">Id</span>&gt; ids) <span class="kw">throws</span> <span class="ty">Exception</span> {
+    <span class="kw">try</span> (<span class="kw">var</span> scope = StructuredTaskScope.<span class="fn">open</span>()) {
+        <span class="kw">var</span> tasks = ids.<span class="fn">stream</span>()
+            .<span class="fn">map</span>(id -&gt; scope.<span class="fn">fork</span>(() -&gt; <span class="fn">enrich</span>(id)))
+            .<span class="fn">toList</span>();
+        scope.<span class="fn">join</span>();
+        <span class="kw">return</span> tasks.<span class="fn">stream</span>().<span class="fn">map</span>(<span class="ty">Subtask</span>::get).<span class="fn">toList</span>();  <span class="c">// get() only valid AFTER join()</span>
+    }
+}
+
+<span class="c">// CLIENT-SIDE: identical idea — a record with a seq field,</span>
+<span class="c">// emitted through the SseEmitter/Flux fan-in from §11.1.</span>
+<span class="kw">record</span> <span class="ty">Chunk</span>(<span class="kw">int</span> seq, <span class="ty">Doc</span> doc) {}</pre>
+      <div class="note">Pre-Loom equivalent of the server-side variant: <code>invokeAll</code>, or a list of <code>CompletableFuture</code> + <code>allOf().join()</code> then <code>map(CompletableFuture::join)</code> — order comes from the list, minus the cancellation guarantees.</div>
+    </div>
+  </div>
+
+  <h2 style="font-size:19px;margin-top:30px"><span class="num">§11.3</span>Resiliency — timeouts at two granularities, and hedging</h2>
+  <div class="duo">
+    <div class="card k">
+      <h3>KOTLIN</h3>
+<pre><span class="c">// TIMEOUTS: coarse around the whole request, fine per call.</span>
+<span class="kw">suspend fun</span> <span class="fn">handle</span>(q: <span class="ty">Query</span>): <span class="ty">Answer</span> =
+    <span class="fn">withTimeout</span>(<span class="str">2</span>.seconds) {              <span class="c">// COARSE: whole request</span>
+        <span class="kw">val</span> fast = <span class="fn">withTimeoutOrNull</span>(<span class="str">300</span>.milliseconds) {
+            <span class="fn">personalize</span>(q)                   <span class="c">// FINE: optional extra —</span>
+        }                                    <span class="c">// null on timeout, keep going</span>
+        <span class="fn">answer</span>(q, fast)
+    }
+
+<span class="c">// HEDGING: fire the same call at two replicas; FIRST SUCCESS wins.</span>
+<span class="c">// A hedge must survive a FAILING replica, so each branch yields a</span>
+<span class="c">// Result rather than throwing. CRITICAL: use runSuspendCatching,</span>
+<span class="c">// NOT stdlib runCatching — runCatching catches CancellationException</span>
+<span class="c">// too, so when the winner cancels the loser, the loser would swallow</span>
+<span class="c">// its own cancellation and break structured concurrency (KT-#1814).</span>
+<span class="kw">suspend inline fun</span> &lt;T&gt; <span class="fn">runSuspendCatching</span>(block: () -&gt; T): <span class="ty">Result</span>&lt;T&gt; =
+    <span class="kw">try</span> { <span class="ty">Result</span>.<span class="fn">success</span>(<span class="fn">block</span>()) }
+    <span class="kw">catch</span> (c: <span class="ty">CancellationException</span>) { <span class="kw">throw</span> c }   <span class="c">// let cancellation propagate</span>
+    <span class="kw">catch</span> (e: <span class="ty">Throwable</span>)            { <span class="ty">Result</span>.<span class="fn">failure</span>(e) }
+
+<span class="kw">suspend fun</span> <span class="fn">hedged</span>(q: <span class="ty">Query</span>): <span class="ty">Px</span> = <span class="fn">coroutineScope</span> {
+    <span class="kw">val</span> ch = <span class="ty">Channel</span>&lt;<span class="ty">Result</span>&lt;<span class="ty">Px</span>&gt;&gt;(capacity = <span class="str">2</span>)
+    <span class="fn">launch</span> { ch.<span class="fn">send</span>(<span class="fn">runSuspendCatching</span> { replicaA.<span class="fn">quote</span>(q) }) }
+    <span class="fn">launch</span> {
+        <span class="fn">delay</span>(<span class="str">50</span>.milliseconds)          <span class="c">// hedge only AFTER a grace period,</span>
+        ch.<span class="fn">send</span>(<span class="fn">runSuspendCatching</span> { replicaB.<span class="fn">quote</span>(q) })  <span class="c">// most calls stay single</span>
+    }
+    <span class="kw">var</span> last: <span class="ty">Throwable</span> = <span class="ty">IllegalStateException</span>(<span class="str">"no replica ran"</span>)
+    <span class="kw">repeat</span>(<span class="str">2</span>) {                       <span class="c">// take the first SUCCESS and return —</span>
+        <span class="kw">val</span> r = ch.<span class="fn">receive</span>()          <span class="c">// leaving coroutineScope cancels the</span>
+        r.<span class="fn">getOrNull</span>()?.<span class="kw">let</span> { <span class="kw">return</span>@coroutineScope it }   <span class="c">// loser automatically</span>
+        r.<span class="fn">exceptionOrNull</span>()?.<span class="kw">let</span> { last = it }
+    }
+    <span class="kw">throw</span> last                       <span class="c">// both replicas failed (non-null accumulator)</span>
+}</pre>
+    </div>
+    <div class="spine"><span class="eq approx">≈</span></div>
+    <div class="card v">
+      <h3>JAVA</h3>
+<pre><span class="c">// TIMEOUTS — coarse: a deadline on the whole scope cancels the</span>
+<span class="c">// entire task tree at once (JDK 25 preview API):</span>
+<span class="kw">try</span> (<span class="kw">var</span> scope = StructuredTaskScope.<span class="fn">open</span>(
+        Joiner.&lt;<span class="ty">Part</span>&gt;<span class="fn">allSuccessfulOrThrow</span>(),   <span class="c">// JDK 25: join() yields a Stream</span>
+        cf -&gt; cf.<span class="fn">withTimeout</span>(Duration.<span class="fn">ofSeconds</span>(<span class="str">2</span>)))) {  <span class="c">// (List in JDK 26)</span>
+    scope.<span class="fn">fork</span>(() -&gt; <span class="fn">search</span>(q));
+    scope.<span class="fn">fork</span>(() -&gt; <span class="fn">ratings</span>(q));
+    <span class="kw">var</span> parts = scope.<span class="fn">join</span>().<span class="fn">map</span>(<span class="ty">Subtask</span>::get).<span class="fn">toList</span>();  <span class="c">// timeout ⇒ TimeoutException</span>
+}
+<span class="c">// NOTE: awaitAll() also exists but returns Void — you'd read results</span>
+<span class="c">// via Subtask::get; use allSuccessfulOrThrow() when you want them</span>
+<span class="c">// back from join(). fine, per call (CompletableFuture):</span>
+<span class="c">//   call.orTimeout(300, TimeUnit.MILLISECONDS)  // TimeUnit, not ChronoUnit</span>
+<span class="c">//   — but orTimeout completes the CF; the underlying work keeps</span>
+<span class="c">//   running unless it is itself cancellable. Reactor: .timeout(...)</span>
+
+<span class="c">// HEDGING — here Java is genuinely nicer: the Joiner encodes exactly</span>
+<span class="c">// the "first SUCCESS wins, a failing replica does not sink the call"</span>
+<span class="c">// policy, and cancels the loser for you.</span>
+<span class="ty">Px</span> <span class="fn">hedged</span>(<span class="ty">Query</span> q) <span class="kw">throws</span> <span class="ty">Exception</span> {
+    <span class="kw">try</span> (<span class="kw">var</span> scope = StructuredTaskScope.<span class="fn">open</span>(
+            Joiner.&lt;<span class="ty">Px</span>&gt;<span class="fn">anySuccessfulResultOrThrow</span>())) {   <span class="c">// JDK 25 spelling</span>
+        scope.<span class="fn">fork</span>(() -&gt; replicaA.<span class="fn">quote</span>(q));
+        scope.<span class="fn">fork</span>(() -&gt; {
+            Thread.<span class="fn">sleep</span>(<span class="str">50</span>);              <span class="c">// grace period — cheap to</span>
+            <span class="kw">return</span> replicaB.<span class="fn">quote</span>(q);      <span class="c">//   park: it's a virtual thread</span>
+        });
+        <span class="kw">return</span> scope.<span class="fn">join</span>();               <span class="c">// first SUCCESS (failures are</span>
+    }                                       <span class="c">//   ignored unless ALL fail);</span>
+}                                           <span class="c">//   the loser is interrupted</span>
+<span class="c">// JDK 26 (JEP 525) renames it: Joiner.anySuccessfulOrThrow()</span>
+<span class="c">// Reactor: Mono.firstWithValue(a, b) — same "first value, tolerate</span>
+<span class="c">// a failing source" semantics; the losing subscription is disposed.</span></pre>
+    </div>
+  </div>
+
+  <h2 style="font-size:19px;margin-top:30px"><span class="num">§11.4</span>Backpressure at the edge</h2>
+  <div class="duo">
+    <div class="card k">
+      <h3>KOTLIN · Flow has it built in</h3>
+<pre><span class="c">// collect() drives emission: the server does not compute response</span>
+<span class="c">// N+1 until the client has consumed response N. A slow client</span>
+<span class="c">// therefore slows the SERVER — for free.</span>
+<span class="kw">fun</span> <span class="fn">results</span>(q: <span class="ty">Query</span>): <span class="ty">Flow</span>&lt;<span class="ty">Part</span>&gt; = <span class="fn">flow</span> {
+    <span class="kw">while</span> (<span class="fn">hasMore</span>(q)) <span class="fn">emit</span>(<span class="fn">nextPart</span>(q))   <span class="c">// suspends on a slow client</span>
+}
+<span class="c">// BUFFERED backpressure: let the server run k steps AHEAD, so it</span>
+<span class="c">// isn't idle while the client digests — bounded, so still safe:</span>
+.<span class="fn">buffer</span>(<span class="str">8</span>)</pre>
+    </div>
+    <div class="spine"><span class="eq approx">≈</span></div>
+    <div class="card j">
+      <h3>JAVA · protocol vs parked thread</h3>
+<pre><span class="c">// WebFlux: backpressure is the request(n) protocol. The framework</span>
+<span class="c">// translates the client's TCP window / SSE consumption into demand;</span>
+<span class="c">// bound the gap explicitly:</span>
+flux.<span class="fn">onBackpressureBuffer</span>(<span class="str">8</span>)     <span class="c">// == buffer(8)</span>
+    .<span class="fn">onBackpressureLatest</span>();      <span class="c">// or: drop stale instead (== conflate)</span>
+
+<span class="c">// WebMVC + VT: no protocol needed — writing to a slow client's</span>
+<span class="c">// socket simply BLOCKS the request's virtual thread. The parked VT</span>
+<span class="c">// IS the backpressure signal, and it costs ~nothing. The TCP send</span>
+<span class="c">// buffer (~64KB) plays the role of buffer(k).</span></pre>
+    </div>
+  </div>
+
+  <div class="callout"><span class="tag warn">composition</span>These aren't alternatives — a production streaming endpoint is typically <b>generator(fan-in(hedged(timeout(call))))</b> with buffered backpressure at the edge. The reason to prefer coroutines or StructuredTaskScope over hand-rolled futures for this: cancellation composes. When the client disconnects, the generator's scope is cancelled, which cancels the fan-in children, which cancels the hedges — the whole tree, automatically (§3).</div>
+</section>
+
 <section id="gotchas">
-  <h2><span class="num">§11</span>Cross-cutting gotchas</h2>
+  <h2><span class="num">§12</span>Cross-cutting gotchas</h2>
   <table>
     <tr><th>Topic</th><th class="kcol">Coroutines</th><th class="jcol">Virtual threads</th></tr>
-    <tr><td><b>ThreadLocal / MDC</b></td><td class="kcol">Broken by default — a coroutine hops threads. Use <code>MDCContext()</code> in the context, or <code>ThreadContextElement</code>.</td><td class="jcol">Works (each VT has its own) — but millions of VTs × heavy ThreadLocals = heap pressure. Prefer <code>ScopedValue</code> (final, JDK 25 / JEP 506).</td></tr>
-    <tr><td><b>Blocking by accident</b></td><td class="kcol">Blocking call in <code>Dispatchers.Default</code> starves CPU workers — wrap in <code>Dispatchers.IO</code>/<code>runInterruptible</code>.</td><td class="jcol">Blocking is the point — but pre-JDK-24 <code>synchronized</code>+I/O pinned the carrier (JFR event <code>jdk.VirtualThreadPinned</code>). JDK 24+ fixed; native/JNI frames still pin.</td></tr>
+    <tr><td><b>ThreadLocal / MDC</b></td><td class="kcol">Broken by default — a coroutine hops threads. Manually: <code>MDCContext()</code> or a <code>ThreadContextElement</code>. In <b>Spring Boot 4 / Framework 7</b>, <code>spring.reactor.context-propagation=auto</code> wires this up automatically (a new <code>PropagationContextElement</code> bridges the Micrometer Context Propagation library into the <code>CoroutineContext</code>). On Boot 3.x it was unreliable — it broke whenever the dispatcher changed threads.</td><td class="jcol">Works (each VT has its own) — but millions of VTs × heavy ThreadLocals = heap pressure. Prefer <code>ScopedValue</code> (final, JDK 25 / JEP 506).</td></tr>
+    <tr><td><b>Blocking by accident</b></td><td class="kcol">Blocking call in <code>Dispatchers.Default</code> starves CPU workers — wrap in <code>Dispatchers.IO</code>/<code>runInterruptible</code>.</td><td class="jcol">Blocking is the point — but pre-JDK-24 <code>synchronized</code>+I/O pinned the carrier (JFR event <code>jdk.VirtualThreadPinned</code>). JDK 24+ fixed the <code>synchronized</code> case; as of JDK 24, native/JNI frames and class-initializer blocks still pin.</td></tr>
     <tr><td><b>The classic deadlock</b></td><td class="kcol"><code>runBlocking</code> inside a coroutine on a limited dispatcher — a thread waits on work that needs that thread.</td><td class="jcol">All Hikari connections held by VTs that are pinned/waiting on a lock held by a VT that needs a connection. Bulkhead scarce pools.</td></tr>
     <tr><td><b>Fire-and-forget leaks</b></td><td class="kcol"><code>GlobalScope.launch</code> — orphaned work, exceptions vanish into the default handler.</td><td class="jcol"><code>Thread.ofVirtual().start()</code> outside any scope — identical leak, plus VT stack traces vanish from thread dumps unless you use <code>jcmd Thread.dump_to_file</code>.</td></tr>
     <tr><td><b>Exceptions</b></td><td class="kcol"><code>launch</code> throws to the scope's handler; <code>async</code> defers until <code>.await()</code> — an un-awaited failed <code>async</code> still cancels the scope.</td><td class="jcol"><code>Subtask.get()</code> before <code>join()</code> is an error; CF swallows exceptions until <code>join/get</code> — the eternal silent-failure trap.</td></tr>
-    <tr><td><b>Spring @Transactional</b></td><td class="kcol">Works with suspend fns (R2DBC reactive tx); with JDBC, keep the whole tx inside one <code>withContext(Dispatchers.IO)</code> block — tx state is ThreadLocal.</td><td class="jcol">Works unchanged — the tx stays on one VT. Beware: connection is held across every park inside the method; don't call slow REST inside a tx.</td></tr>
+    <tr><td><b>Spring @Transactional</b></td><td class="kcol">Works with suspend fns (R2DBC reactive tx); with JDBC, keep the whole tx inside one <code>withContext(Dispatchers.IO)</code> block — tx state is ThreadLocal.</td><td class="jcol">Works unchanged — the tx stays on one VT. But the DB connection is pinned to the tx for its <b>whole duration</b>: a slow REST call inside <code>@Transactional</code> holds a Hikari connection the entire time. VTs are free; connections are not — millions of VTs blocked in-tx on a 10-connection pool is instant pool exhaustion. Never do I/O to a third party inside a transaction.</td></tr>
   </table>
 </section>
 
 <footer>
-  <p><b>Dependency quick-ref</b> — Gradle (KTS): <code>implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")</code> · <code>kotlinx-coroutines-reactor</code> (Spring interop) · <code>kotlinx-coroutines-jdk8</code> (CF interop). Spring Boot BOM manages coroutine versions when the Kotlin plugin is applied. Virtual threads: JDK 21+, <code>spring.threads.virtual.enabled=true</code> (Boot 3.2+). <code>StructuredTaskScope</code>: JDK 25 with <code>--enable-preview</code> (API shape may still shift before finalization). Verify current versions before locking a build.</p>
+  <p><b>Dependency quick-ref</b> — Gradle (KTS): <code>implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")</code> · <code>kotlinx-coroutines-reactor</code> (Spring interop) · <code>kotlinx-coroutines-jdk8</code> (CF interop). Spring Boot BOM manages coroutine versions when the Kotlin plugin is applied. Boot 4 bundles <code>io.micrometer:context-propagation</code> for automatic coroutine context/tracing propagation (<code>spring.reactor.context-propagation=auto</code>). Virtual threads: JDK 21+, <code>spring.threads.virtual.enabled=true</code> (Boot 3.2+). <code>StructuredTaskScope</code>: JDK 25 with <code>--enable-preview</code> (API shape may still shift before finalization). Verify current versions before locking a build.</p>
 </footer>
 
 </div>
