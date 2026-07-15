@@ -479,7 +479,35 @@ prices.<span class="fn">conflate</span>().<span class="fn">map</span> { ... }.<s
       <div class="note"><code>StructuredTaskScope</code> (§3) is Java's answer to the left block, but it's a preview API and more verbose. There is <b>no</b> VT replacement for <code>Flow</code>, <code>Channel</code>/<code>select</code>, or dispatcher confinement — that's a concurrency model, not a threading trick.</div>
     </div>
   </div>
-  <div class="callout good"><span class="tag ok">takeaway</span>Post-Loom, "escape the thread-per-request ceiling" is no longer a reason to choose coroutines — VTs give you that with less ceremony. "I want structured concurrency, <code>Flow</code>, and channel coordination" still is. And they compose: run coroutines <em>on</em> a VT-backed dispatcher (<code>Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()</code>) and get cheap parking <em>and</em> the coroutine model. Most Kotlin teams that adopt VTs still keep <code>Flow</code> and <code>coroutineScope</code> because they're more ergonomic than the Java equivalents.</div>
+  <div class="card k" style="margin-top:16px">
+    <h3>KOTLIN · on virtual threads, yet <code>suspend</code> is still required</h3>
+<pre><span class="c">// Whole app runs on virtual threads. This service ALSO needs the</span>
+<span class="c">// coroutine model — because it returns a STREAM and fans out with</span>
+<span class="c">// cancellation. VTs give neither. So suspend stays; it just runs</span>
+<span class="c">// ON a VT-backed dispatcher instead of Dispatchers.IO.</span>
+<span class="c">//</span>
+<span class="c">// NOTE: there is NO built-in Dispatchers.LOOM. You wrap a virtual-</span>
+<span class="c">// thread executor yourself — it's a plain val, not a Dispatchers member:</span>
+<span class="kw">val</span> vtDispatcher: <span class="ty">CoroutineDispatcher</span> =
+    Executors.<span class="fn">newVirtualThreadPerTaskExecutor</span>().<span class="fn">asCoroutineDispatcher</span>()
+
+<span class="c">// (1) Returns a Flow → MUST be built with a flow builder; there is</span>
+<span class="c">//     no virtual-thread way to express a cold, backpressured stream.</span>
+<span class="kw">fun</span> <span class="fn">priceStream</span>(sym: <span class="ty">String</span>): <span class="ty">Flow</span>&lt;<span class="ty">Tick</span>&gt; = <span class="fn">flow</span> {
+    <span class="kw">while</span> (true) <span class="fn">emit</span>(<span class="fn">poll</span>(sym))        <span class="c">// emit() is a suspend fn</span>
+}.<span class="fn">conflate</span>().<span class="fn">flowOn</span>(vtDispatcher)     <span class="c">// blocking poll() on a VT</span>
+
+<span class="c">// (2) Fan-out with a typed result + auto-cancellation → async/await.</span>
+<span class="c">//     suspend is mandatory to call coroutineScope / await at all.</span>
+<span class="kw">suspend fun</span> <span class="fn">dashboard</span>(id: <span class="ty">String</span>): <span class="ty">Dashboard</span> = <span class="fn">coroutineScope</span> {
+    <span class="kw">val</span> pos = <span class="fn">async</span>(vtDispatcher) { blockingPositions(id) }  <span class="c">// blocking</span>
+    <span class="kw">val</span> pnl = <span class="fn">async</span>(vtDispatcher) { blockingPnl(id) }        <span class="c">//   JDBC,</span>
+    <span class="ty">Dashboard</span>(pos.<span class="fn">await</span>(), pnl.<span class="fn">await</span>())   <span class="c">// either fails ⇒ sibling cancelled</span>
+}                                        <span class="c">//   — a guarantee VTs alone don't give</span></pre>
+    <div class="note">There is <b>no built-in <code>Dispatchers.LOOM</code></b> — you convert a virtual-thread executor with <code>asCoroutineDispatcher()</code> and hold it as your own value (some people expose it as a <code>Dispatchers.LOOM</code> extension property for readability, but that's your code, not the library's). The blocking calls (<code>poll</code>, <code>blockingPositions</code>) then run on real virtual threads and park for free — no <code>Dispatchers.IO</code> pool, no 64-thread cap. But <code>Flow</code>, <code>async</code>/<code>await</code>, and <code>coroutineScope</code> are language constructs you can only reach through <code>suspend</code>. VTs are the <em>execution infrastructure</em>; coroutines are the <em>abstraction</em> — here you want both, so <code>suspend</code> stays.</div>
+  </div>
+
+  <div class="callout good"><span class="tag ok">takeaway</span>Post-Loom, "escape the thread-per-request ceiling" is no longer a reason to choose coroutines — VTs give you that with less ceremony. "I want structured concurrency, <code>Flow</code>, and channel coordination" still is. And they compose: run coroutines <em>on</em> a dispatcher you wrap around a VT executor — <code>Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()</code> (there is no built-in <code>Dispatchers.LOOM</code>) — and get cheap parking <em>and</em> the coroutine model. Most Kotlin teams that adopt VTs still keep <code>Flow</code> and <code>coroutineScope</code> because they're more ergonomic than the Java equivalents.</div>
 </section>
 
 <!-- ============ 2 BUILDERS ============ -->
