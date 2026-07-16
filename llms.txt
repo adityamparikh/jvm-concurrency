@@ -1,0 +1,26 @@
+# JVM Concurrency Cheatsheet
+
+> Kotlin coroutines, suspend functions, and Flow — mapped line-by-line to their Java equivalents (virtual threads and without), Reactor, and the WebMVC-vs-WebFlux decision, covering the pre- and post-virtual-threads landscape. Built for a senior JVM/Spring engineer audience; verified against JDK 25/26 preview APIs and reviewed by multiple domain-expert passes. Concurrency framing after the talks and Spring I/O deck of Urs Peter (Xebia) — see the source-track section for full credit.
+
+The canonical, human-facing version (with interactive diagrams, light/dark theme, and a section nav) is `index.html` at the repo root, published via GitHub Pages. The `docs/` directory below is a generated, machine-readable mirror of the same content — one markdown file per section, code samples in fenced blocks, flowcharts as Mermaid, marble/timing diagrams as tables — intended for AI tools, RAG pipelines, and coding agents. `llms-full.md` is the same content concatenated into one file for whole-document ingestion.
+
+## Sections
+
+- [§0 Mental model](docs/00-mental-model.md): Sync vs async, blocking vs non-blocking, concurrent vs parallel — the vocabulary, plus platform threads vs virtual threads vs coroutines compared side by side.
+- [§1 Suspend functions](docs/01-suspend-functions.md): What `suspend` means, the CPS state-machine transform, its relation to coroutines, Java/virtual-thread/CompletableFuture/Reactor Mono equivalents, and whether virtual threads make `suspend` obsolete (not entirely).
+- [§2 Builders & scopes](docs/02-builders-scopes.md): launch/async/coroutineScope/supervisorScope/withContext mapped to ExecutorService, StructuredTaskScope, and Future/CompletableFuture equivalents.
+- [§3 Structured concurrency](docs/03-structured-concurrency.md): Failure propagation and cancellation trees: coroutineScope vs StructuredTaskScope, with the failure-tree diagram.
+- [§4 Dispatchers ↔ Executors](docs/04-dispatchers-executors.md): Dispatchers.Default/IO/Unconfined/limitedParallelism mapped to Java thread pools and virtual-thread executors, with sizing guidance.
+- [§5 Cancellation & timeouts](docs/05-cancellation-timeouts.md): withTimeout, cooperative cancellation, and the StructuredTaskScope interrupt trap (why scope.close() can hang).
+- [§6 Channels — handing work between coroutines](docs/06-channels-handing-work-between-coroutines.md): Channel-based producer/worker pipelines with suspension-based backpressure, mapped to BlockingQueue and Reactor Sinks, plus `select`.
+- [§7 Flow ↔ Reactor — asynchronous streams](docs/07-flow-reactor-asynchronous-streams.md): Flow vs Reactor Flux/Mono, why java.util.stream.Stream isn't equivalent, and marble-diagram tables for flatMapMerge/Concat/Latest and buffer/conflate/debounce/sample.
+- [§8 Hot streams: StateFlow / SharedFlow ↔ Sinks](docs/08-hot-streams-stateflow-sharedflow-sinks.md): StateFlow/SharedFlow (hot, multicast) vs cold Flow, mapped to Reactor Sinks and plain Java alternatives.
+- [§9 Interop bridges — mix stacks without rewriting](docs/09-interop-bridges-mix-stacks-without-rewriting.md): Bridging suspend functions, Flow, Mono/Flux, and CompletableFuture across the Kotlin/Reactor/Java boundary without a full rewrite.
+- [§10 WebMVC vs WebFlux — the post-Loom decision](docs/10-webmvc-vs-webflux-the-post-loom-decision.md): The WebMVC-vs-WebFlux decision post-virtual-threads, including Urs Peter's decision tree and CoroutineCrudRepository.
+- [§11 Server pipeline patterns](docs/11-server-pipeline-patterns.md): Six server concurrency patterns — generator, fan-in, ordering, timeouts, hedging, backpressure — each with Kotlin and Java implementations.
+- [§12 Cross-cutting gotchas](docs/12-cross-cutting-gotchas.md): Cross-cutting pitfalls: ThreadLocal/MDC propagation, @Transactional on virtual threads, GlobalScope, and other traps.
+- [§13 The source track — Urs Peter's talks and slides, one arc](docs/13-the-source-track-urs-peter-s-talks-and-slides-one-arc.md): Primary-source credit and links: Urs Peter's talks and Spring I/O deck that this document's concurrency framing is built on.
+
+## Optional
+
+- [Full concatenated document](llms-full.md): all sections above, single file, for whole-document context ingestion.
